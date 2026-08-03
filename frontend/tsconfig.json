@@ -1,0 +1,31 @@
+{
+  "compilerOptions": {
+    // O código-fonte é compilado para o JavaScript de um navegador
+    // moderno, não para um Node.js antigo -- este é um app de front-end.
+    "target": "ES2022",
+    "useDefineForClassFields": true,
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "skipLibCheck": true,
+
+    // Modo "bundler": deixa o Vite (não o próprio tsc) resolver e
+    // empacotar os módulos. O tsc aqui só verifica tipos, nunca gera JS
+    // de fato para rodar -- quem gera é o Vite (ver o script "build" em
+    // package.json: "tsc -b && vite build").
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "isolatedModules": true,
+    "moduleDetection": "force",
+    "noEmit": true,
+    "jsx": "react-jsx",
+
+    // Modo estrito do TypeScript: pega em tempo de compilação erros que
+    // só apareceriam em produção sem isso (por exemplo, esquecer de
+    // tratar um valor que pode ser `undefined`).
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true
+  },
+  "include": ["src"]
+}

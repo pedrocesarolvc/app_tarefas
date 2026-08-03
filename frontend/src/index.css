@@ -1,0 +1,9 @@
+/* Reset mínimo -- nada de sistema de design aqui ainda, isso nasce junto
+   com o desenho real das telas, quando essa etapa da documentação existir. */
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+}

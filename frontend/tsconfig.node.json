@@ -1,0 +1,15 @@
+{
+  // tsconfig separado para arquivos que rodam em Node (hoje, só
+  // vite.config.ts), não no navegador -- por isso "lib" não inclui "DOM"
+  // aqui, diferente do tsconfig.json principal.
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2023"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "allowSyntheticDefaultImports": true,
+    "strict": true,
+    "noEmit": true
+  },
+  "include": ["vite.config.ts"]
+}

@@ -1,0 +1,22 @@
+# --- Framework web e servidor ASGI ---
+fastapi==0.141.1
+uvicorn[standard]==0.52.1
+
+# --- Banco de dados ---
+sqlalchemy==2.0.51
+psycopg2-binary==2.9.12
+alembic==1.18.5
+
+# --- Validação e configuração ---
+pydantic==2.13.4
+pydantic-settings==2.14.2
+# EmailStr (usado em app/schemas/usuario.py) precisa deste extra do Pydantic.
+email-validator==2.3.0
+
+# --- Autenticação simples (Etapa 1.4) ---
+bcrypt==5.0.0
+itsdangerous==2.2.0
+
+# --- Testes ---
+pytest==9.1.1
+httpx==0.28.1

@@ -1,0 +1,50 @@
+# Orquestra os dois serviços que já existem nesta etapa do projeto: o
+# banco de dados e a API. O frontend (Etapa 1.5, React/Vite) ainda não
+# entra aqui -- ele hoje é só ferramental (ver frontend/), sem uma imagem
+# de produção que faça sentido empacotar; isso é conteúdo da Etapa 7
+# ("Entrega — API, PWA, testes e Docker").
+services:
+  banco:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: kanban
+      POSTGRES_PASSWORD: kanban
+      POSTGRES_DB: kanban
+    ports:
+      # Exposto no host (não só na rede interna do compose) para permitir
+      # rodar a API fora do Docker durante o desenvolvimento (ex.: com
+      # debugger anexado no editor) enquanto o banco roda containerizado.
+      - "5432:5432"
+    volumes:
+      # Sem isso, os dados do Postgres viveriam só dentro do container e
+      # sumiriam a cada `docker compose down` -- o volume nomeado
+      # sobrevive a isso, e só é apagado com `docker compose down -v`.
+      - dados_do_banco:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U kanban"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build: ./backend
+    restart: unless-stopped
+    environment:
+      # Host "banco", não "localhost": dentro da rede do compose, cada
+      # serviço se enxerga pelo próprio nome -- é assim que a API alcança
+      # o Postgres do serviço acima.
+      DATABASE_URL: postgresql+psycopg2://kanban:kanban@banco:5432/kanban
+      CHAVE_SECRETA: troque-esta-chave-antes-de-qualquer-deploy
+    ports:
+      - "8000:8000"
+    depends_on:
+      banco:
+        # Espera o Postgres responder a `pg_isready` (o healthcheck acima)
+        # antes de subir a API -- sem isso, a API poderia tentar conectar
+        # antes do banco estar pronto para aceitar conexões, na primeira
+        # subida do ambiente.
+        condition: service_healthy
+
+volumes:
+  dados_do_banco:

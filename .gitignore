@@ -1,0 +1,26 @@
+# --- Python / backend ---
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+
+# variáveis de ambiente reais nunca vão pro repositório — só o .env.example
+.env
+backend/.env
+
+# --- Node / frontend ---
+node_modules/
+frontend/dist/
+frontend/.vite/
+
+# --- banco de dados local (se alguém rodar Postgres em arquivo/sqlite local) ---
+*.sqlite3
+pgdata/
+
+# --- editor / SO ---
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

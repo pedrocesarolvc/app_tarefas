@@ -1,0 +1,23 @@
+{
+  "name": "kanban-com-tempo-frontend",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "//comentario": "Este package.json é só o alicerce de ferramental (Vite + React + TypeScript). Nenhum componente de interface foi criado ainda -- o desenho da UI (quadro, lista, cartão, calendário, ver a pasta 'componentes/' listada em 1.6 da documentação) depende de decisões que ainda não foram tomadas nas etapas escritas (só a 1 e a 2 existem hoje, e são sobre domínio/backend, não sobre telas).",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.18",
+    "@types/react-dom": "^18.3.5",
+    "@vitejs/plugin-react": "^4.3.4",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.7"
+  }
+}

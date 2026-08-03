@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Kanban com tempo</title>
+    <!--
+      Sem <link rel="manifest"> aqui de propósito: tornar o app instalável
+      (PWA) é conteúdo da Etapa 7 da documentação ("Entrega — API, PWA,
+      testes e Docker"), que ainda não foi escrita. Adicionar o manifest
+      agora, sem os ícones e sem o service worker que o acompanham
+      (Etapa 5), deixaria uma peça pela metade -- o tipo de coisa que a
+      Etapa 1.2 da documentação pede para evitar.
+    -->
+  </head>
+  <body>
+    <div id="raiz"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
