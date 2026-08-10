@@ -6,7 +6,29 @@ Cada entrada referencia a seção da documentação (`docs/documentacao.md`) que
 
 ## [Não lançado]
 
-Nada pendente no momento. Próximo passo natural: escrever a Etapa 4 (a dimensão tempo — data no cartão e o calendário).
+Nada pendente no momento. Próximo passo natural: escrever a Etapa 5 (o worker de notificação).
+
+## [0.3.0] - 2026-08-10
+
+Implementa a Etapa 4 (a dimensão tempo): os campos que fazem deste um kanban "com tempo", e a lente do calendário.
+
+### Adicionado
+
+- `Cartao.notificar_em` (`DateTime(timezone=True)`, nullable) e `Cartao.notificado` (`Boolean`, default `False`) — os dois campos novos da Etapa 4.2/4.3.
+- `backend/app/servicos/prazos.py`: `calcular_notificar_em(prazo, aviso_previo)` e `aplicar_edicao_de_cartao(cartao, campos_alterados)`, isolando a regra da Etapa 4.3 — mudar `prazo` ou `aviso_previo` recalcula `notificar_em` e reseta `notificado` para `False`, mesmo que o cartão já tivesse sido notificado.
+- Rota `GET /calendario` (`backend/app/rotas/calendario.py`): os cartões do usuário com `prazo` num intervalo `de`/`ate`, atravessando todos os quadros dele (filtro opcional por `quadro_id`) — a "lente" da Etapa 4.5, sem tabela nova.
+- `backend/tests/test_dimensao_tempo.py`: quatro testes, não os nove do checklist 4.8 completo — a pedido explícito, cobrindo só os de maior valor (cartão sem prazo, cálculo de `notificar_em` na criação, o reset de `notificado` ao adiar um prazo já notificado, e o contrato do calendário — período, cross-quadro, arquivados — num único teste).
+
+### Alterado
+
+- `Cartao.aviso_previo_minutos` (`Integer`) virou `Cartao.aviso_previo` (`Interval`/`timedelta`, Etapa 4.2) — `INTERVAL` nativo do PostgreSQL, não mais um inteiro de minutos escolhido por falta de tipo melhor. Refletido em `CartaoCriar`, `CartaoAtualizar` e `CartaoLeitura`.
+- `criar_cartao` e `atualizar_cartao` (`backend/app/rotas/cartoes.py`) passaram a calcular `notificar_em` via o serviço em vez de só guardar `prazo`/`aviso_previo` como campos soltos; `atualizar_cartao` trocou o `setattr` genérico por `aplicar_edicao_de_cartao`.
+- `main.py`: registra o roteador do calendário; descrição da API atualizada para refletir as Etapas 1-4.
+
+### Decisões registradas nesta etapa (não estão na documentação ainda)
+
+- O teste de `notificar_em`/`notificado` simula "cartão já notificado" escrevendo direto no banco de teste (`sessao_bruta`), já que nenhuma rota grava `notificado=True` ainda — isso só existe quando o worker da Etapa 5 for escrito.
+- Nos testes (SQLite em memória), um `DateTime(timezone=True)` volta do banco sem `tzinfo`, embora represente o mesmo instante — particularidade do SQLite, não do comportamento da API contra PostgreSQL de verdade. As comparações de data nos testes normalizam isso; não é um ajuste no código de produção.
 
 ## [0.2.0] - 2026-08-10
 

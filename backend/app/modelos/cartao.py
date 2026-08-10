@@ -2,18 +2,21 @@
 Modelo Cartao (card) — a tarefa em si, o nível mais baixo da hierarquia
 (Etapa 2.2: "nada abaixo do cartão").
 
-Carrega os dois únicos campos que fazem deste um kanban "com tempo", em vez
-de um kanban comum: `prazo` e `aviso_previo_minutos` (Etapa 1.3 e 2.5). A
-lógica em torno deles — calendário, disparo de notificação — só chega na
-Etapa 4 e 5; por enquanto eles são apenas colunas guardadas, sem
-comportamento.
+Carrega os quatro campos que fazem deste um kanban "com tempo", em vez de
+um kanban comum (Etapa 4.2): `prazo` (quando vence), `aviso_previo`
+(quanto tempo antes avisar), e mais dois que a Etapa 4.3 acrescenta --
+`notificar_em` (o instante do disparo, já calculado) e `notificado` (a
+flag de controle). A lógica de disparo em si -- o worker que lê
+`notificar_em` -- só chega na Etapa 5; aqui os quatro campos já existem
+com o significado e a regra de recálculo corretos (Etapa 4.3, ver
+app/servicos/prazos.py), só falta alguém consumi-los periodicamente.
 """
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, Numeric, String, Text
+from sqlalchemy import Boolean, DateTime, ForeignKey, Interval, Numeric, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -59,15 +62,34 @@ class Cartao(Base):
     # que a maioria dos cartões não vai ter data nenhuma.
     prazo: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
-    # `aviso_previo_minutos`: quanto tempo antes do prazo a notificação
-    # deve disparar (Etapa 1.3, "aviso de prazo"; Etapa 2.5,
-    # `aviso_previo`). A documentação ainda não fixou a unidade — o nome do
-    # campo aqui já a declara (minutos) para não deixar ambíguo. Só faz
-    # sentido em conjunto com `prazo`; um cartão sem prazo não tem o que
-    # avisar. Essa regra (não pode ter aviso sem prazo) ainda não é
-    # validada em código — a Etapa 4 é quem vai desenhar as regras em
-    # volta desses dois campos; aqui eles são só armazenamento.
-    aviso_previo_minutos: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # `aviso_previo`: quanto tempo antes do prazo a notificação deve
+    # disparar (Etapa 4.2). `Interval` -- não um inteiro de minutos -- vira
+    # INTERVAL nativo no PostgreSQL: representa duração de forma direta
+    # ('1 day', '2 hours') e soma/subtrai de TIMESTAMPTZ sem conversão
+    # manual. Continua opcional: um cartão pode ter prazo sem ter pedido
+    # aviso nenhum -- nesse caso `notificar_em` simplesmente fica nulo (ver
+    # calcular_notificar_em em app/servicos/prazos.py), não é um erro.
+    aviso_previo: Mapped[timedelta | None] = mapped_column(Interval, nullable=True)
+
+    # `notificar_em`: o instante em que o worker (Etapa 5) deveria disparar
+    # a notificação -- `prazo - aviso_previo`, MATERIALIZADO nesta coluna
+    # em vez de calculado a cada consulta (Etapa 4.3). A consulta do
+    # worker vira uma comparação trivial e indexável
+    # (`WHERE notificar_em <= now() AND notificado = false`) em vez de uma
+    # expressão sobre duas colunas. O preço dessa decisão é a regra que seu
+    # nome não deixa óbvia: toda vez que `prazo` ou `aviso_previo` mudam,
+    # este campo precisa ser recalculado -- nunca escrito à mão numa rota,
+    # sempre via app/servicos/prazos.py.
+    notificar_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    # `notificado`: já foi disparada a notificação deste cartão? Por que
+    # ela mora aqui, e não só na cabeça do worker, é a outra metade da
+    # regra da Etapa 4.3 -- a que costuma escapar: se a usuária adia o
+    # prazo de um cartão JÁ notificado, ela espera ser avisada de novo na
+    # nova data. Sem resetar esta flag para False sempre que `prazo` ou
+    # `aviso_previo` mudam, o cartão nunca mais notificaria -- um bug
+    # silencioso, porque nada quebra, o aviso só não chega.
+    notificado: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
 
     # Soft delete (Etapa 2.7): "excluir" um cartão na interface só marca
     # esta flag como True. Toda consulta "normal" (listar cartões de uma

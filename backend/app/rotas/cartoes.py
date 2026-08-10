@@ -16,6 +16,7 @@ from app.modelos.usuario import Usuario
 from app.rotas.listas import obter_lista_do_usuario
 from app.schemas.cartao import CartaoAtualizar, CartaoCriar, CartaoLeitura, CartaoMover
 from app.servicos.ordenacao import PosicaoInvalidaError, calcular_posicao
+from app.servicos.prazos import aplicar_edicao_de_cartao, calcular_notificar_em
 
 roteador = APIRouter(prefix="/quadros/{quadro_id}/listas/{lista_id}/cartoes", tags=["cartões"])
 
@@ -58,12 +59,18 @@ def criar_cartao(
     """Um cartão novo sempre entra no final da lista (Etapa 3: sem campo
     `posicao` no schema -- ver o comentário em CartaoCriar). Mesmo caso de
     borda "soltar no fim" da Etapa 3.7 usado em `criar_lista`
-    (app/rotas/listas.py)."""
+    (app/rotas/listas.py).
+
+    `notificar_em` já nasce calculado (Etapa 4.3) -- mesmo numa criação,
+    não só numa edição -- para que um cartão criado com prazo e aviso
+    prévio já esteja pronto para o worker (Etapa 5) sem precisar de um
+    segundo PATCH."""
     obter_lista_do_usuario(sessao, quadro_id, lista_id, usuario_atual)
     posicao_do_ultimo = _obter_posicao_do_ultimo_cartao(sessao, lista_id)
     cartao = Cartao(
         lista_id=lista_id,
         posicao=calcular_posicao(anterior=posicao_do_ultimo, posterior=None),
+        notificar_em=calcular_notificar_em(dados.prazo, dados.aviso_previo),
         **dados.model_dump(),
     )
     sessao.add(cartao)
@@ -108,10 +115,15 @@ def atualizar_cartao(
 ):
     """Edita conteúdo (título, descrição, prazo, aviso prévio). Não move o
     cartão de lista -- essa é a rota `mover_cartao` abaixo, de propósito
-    separada (ver o comentário em CartaoAtualizar, app/schemas/cartao.py)."""
+    separada (ver o comentário em CartaoAtualizar, app/schemas/cartao.py).
+
+    A aplicação dos campos passa por `aplicar_edicao_de_cartao` (Etapa
+    4.3), não por um `setattr` direto: é ela quem garante que mudar
+    `prazo` ou `aviso_previo` recalcula `notificar_em` e reseta
+    `notificado` -- a regra cujo esquecimento é o bug silencioso descrito
+    em app/servicos/prazos.py."""
     cartao = obter_cartao_do_usuario(sessao, quadro_id, lista_id, cartao_id, usuario_atual)
-    for campo, valor in dados.model_dump(exclude_unset=True).items():
-        setattr(cartao, campo, valor)
+    aplicar_edicao_de_cartao(cartao, dados.model_dump(exclude_unset=True))
     sessao.commit()
     sessao.refresh(cartao)
     return cartao

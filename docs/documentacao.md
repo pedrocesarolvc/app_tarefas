@@ -8,7 +8,7 @@
 | **1** | Visão, domínio e escopo | ✅ escrita |
 | **2** | O modelo kanban — quadro, lista, cartão | ✅ escrita |
 | **3** | Ordenação — indexação fracionária | ✅ escrita |
-| 4 | A dimensão tempo — data no cartão e o calendário | ⬜ pendente |
+| **4** | A dimensão tempo — data no cartão e o calendário | ✅ escrita |
 | 5 | Notificações — o worker que roda sozinho | ⬜ pendente |
 | 6 | Tempo real — WebSocket e atualização otimista | ⬜ pendente |
 | 7 | Entrega — API, PWA, testes e Docker | ⬜ pendente |
@@ -461,6 +461,157 @@ Uma ponte para adiante: a decisão desta etapa é a que vai tornar a Etapa 6 fá
 
 ---
 
+# Etapa 4 — A dimensão tempo
+
+## 4.1 O que esta etapa faz
+
+Adicionar ao cartão a única dimensão que este projeto acrescenta ao kanban clássico: quando.
+
+São duas funcionalidades que a usuária escolheu, e elas têm naturezas opostas. O calendário é barato — os mesmos cartões, olhados por outro eixo. O aviso de prazo é caro — ele exige que algo aconteça sem ninguém clicar, e é o assunto inteiro da Etapa 5.
+
+Esta etapa cuida do modelo que sustenta os dois: quais campos o cartão ganha, e o que eles significam.
+
+## 4.2 Dois campos, não um
+
+```sql
+cartao
+├── ...
+├── prazo          TIMESTAMPTZ      NULL     -- quando vence
+├── aviso_previo   INTERVAL         NULL     -- quanto tempo antes avisar
+├── notificar_em   TIMESTAMPTZ      NULL     -- prazo - aviso_previo (calculado)
+└── notificado     BOOLEAN          NOT NULL DEFAULT false
+```
+
+`prazo` é o vencimento. TIMESTAMPTZ, e opcional — a maioria dos cartões não terá.
+
+`aviso_previo` é a antecedência, configurável por cartão, como ela pediu. O tipo INTERVAL do PostgreSQL é o certo aqui: ele representa duração de forma nativa ('1 day', '2 hours', '30 minutes') e faz aritmética direto com timestamps. A alternativa — guardar minutos como inteiro — funciona, mas joga fora expressividade que o banco já oferece de graça.
+
+Os outros dois campos merecem seção própria.
+
+## 4.3 A decisão: materializar o momento do disparo
+
+O worker da Etapa 5 vai perguntar, de tempos em tempos: "algum cartão precisa ser notificado agora?". Há duas formas de responder.
+
+Calcular na hora:
+
+```sql
+WHERE prazo - aviso_previo <= now()
+```
+
+Correto, e o banco resolve. O problema é que essa expressão envolve duas colunas numa conta — o índice comum não ajuda, e o banco varre a tabela. Resolve-se com índice de expressão, mas é complexidade extra.
+
+Materializar numa coluna:
+
+```sql
+WHERE notificar_em <= now() AND notificado = false
+```
+
+`notificar_em` é gravado quando o cartão é salvo, já com a conta feita. A consulta vira uma comparação simples com índice trivial.
+
+Decisão do v1: materializar. Não pelo desempenho — com uma usuária, nada disso importa — mas porque a consulta do worker fica óbvia de ler e de testar, e porque `notificar_em` se encaixa naturalmente com o controle de "já notifiquei" da Etapa 5.
+
+O custo, e é uma regra de negócio de verdade:
+
+> Sempre que `prazo` ou `aviso_previo` mudarem, `notificar_em` precisa ser recalculado — e `notificado` volta para `false`.
+
+A segunda metade é a que escapa. Se a usuária adia o prazo de um cartão que já foi notificado, ela espera ser avisada de novo na nova data. Sem resetar a flag, o cartão nunca mais notifica. É um bug silencioso: nada quebra, o aviso só não chega.
+
+Isso mora na camada de serviço, junto com o resto das regras — não espalhado por cada rota que edita cartão.
+
+## 4.4 Fuso horário, e o que TIMESTAMPTZ realmente faz
+
+Uma confusão comum: TIMESTAMPTZ não guarda o fuso horário. Ele guarda um instante absoluto (internamente em UTC) e converte na leitura, conforme o fuso da sessão.
+
+Na prática, isso significa que "quinta às 14h em Recife" vira um ponto único na linha do tempo, e o worker dispara no instante certo independentemente do fuso do servidor. É exatamente o que se quer, e é por isso que o tipo é esse — a mesma decisão do projeto de agendamento.
+
+A limitação que vem junto, e vale saber agora: com `aviso_previo` como duração, você só consegue expressar "X tempo antes". Uma regra como "me avise sempre na véspera às 9h" é de relógio de parede, não de intervalo — não cabe neste modelo. Se ela pedir isso depois, é uma mudança de modelagem, não um ajuste. Fica registrado no roadmap.
+
+## 4.5 O calendário é uma lente, não uma entidade
+
+Nenhuma tabela nova. O calendário é uma consulta com outro recorte:
+
+```sql
+SELECT ... FROM cartao
+JOIN lista ON ...
+JOIN quadro ON ...
+WHERE quadro.usuario_id = :usuario
+  AND cartao.arquivado = false
+  AND cartao.prazo BETWEEN :de AND :ate
+ORDER BY cartao.prazo;
+```
+
+Os mesmos cartões do quadro, filtrados por data em vez de agrupados por lista.
+
+Uma decisão de produto embutida aí: o calendário atravessa quadros. Se ela tem "Casa" e "Faculdade" separados, o calendário mostra os dois juntos — porque a pergunta que ele responde é "o que eu tenho hoje?", e essa pergunta não respeita a divisão de quadros. Um filtro opcional por quadro fica disponível para quem quiser recortar.
+
+Vale notar o que isso resolve de graça: uma das fraquezas conhecidas do Trello é que trabalho espalhado por vários quadros é invisível — não existe visão unificada. O calendário, atravessando quadros, corrige parcialmente isso sem nenhum esforço adicional. Efeito colateral bem-vindo da dimensão escolhida.
+
+## 4.6 A maioria dos cartões não terá prazo
+
+Isso não é um detalhe — é uma característica que molda várias decisões.
+
+Lista de compras não tem data. "Ideias de presente" não tem data. Num uso real, é normal que só uma minoria dos cartões tenha prazo, e o modelo trata isso como caso comum, não exceção:
+
+`prazo` é NULL por padrão, e criar cartão não pede data. Obrigar a preencher data em toda tarefa é o tipo de atrito que faz alguém abandonar o app na primeira semana.
+
+Toda consulta que toca `prazo` lida com NULL — inclusive a do worker, que naturalmente ignora quem não tem `notificar_em`.
+
+O calendário vai parecer vazio no começo, e isso não é bug. Vale a interface dizer algo como "nenhum cartão com data neste período" em vez de mostrar uma grade em branco que parece quebrada.
+
+## 4.7 O que fica de fora
+
+| Item | Por quê |
+|---|---|
+| Início e fim (cartão como barra no calendário) | Mais rico e bem mais complexo; só o prazo já alimenta as duas funcionalidades |
+| Recorrência (tarefa toda segunda) | Regra de negócio grande — gera cartões, ou é um cartão que se repete? Projeto à parte |
+| Vários avisos no mesmo cartão (1 dia antes e 1 hora antes) | Exige tabela separada de avisos; o campo único cobre o caso comum |
+| Aviso por regra de relógio ("véspera às 9h") | Não cabe no modelo de duração (seção 4.4) |
+
+Cada um desses é uma boa ideia. Nenhum é necessário para o v1 funcionar — e a regra da Etapa 1 vale aqui como valeu antes.
+
+## 4.8 Como testar
+
+Ainda determinístico, ainda testável de verdade — aproveite, porque a Etapa 5 e a 6 são menos previsíveis:
+
+- Cartão sem prazo é válido; `notificar_em` fica nulo
+- Definir prazo e aviso prévio calcula `notificar_em` corretamente
+- Alterar o prazo recalcula `notificar_em` e reseta `notificado` para `false` — o teste que fecha o bug silencioso da 4.3
+- Alterar só o aviso prévio também recalcula
+- Remover o prazo limpa `notificar_em`
+- O calendário devolve só cartões com prazo dentro do intervalo pedido
+- O calendário atravessa quadros do mesmo usuário
+- Cartões arquivados não aparecem no calendário
+- Um prazo salvo e lido de volta preserva o instante correto
+
+O terceiro é o mais valioso: ele testa uma regra que não quebra nada quando está errada — o aviso simplesmente não chega, e você descobriria semanas depois, provavelmente pela usuária reclamando.
+
+## 4.9 Glossário desta etapa
+
+| Termo | O que é |
+|---|---|
+| **Prazo** | Data e hora de vencimento do cartão. Opcional |
+| **Aviso prévio** | Duração antes do prazo em que a notificação dispara. Por cartão |
+| **INTERVAL** | Tipo do PostgreSQL para duração ('1 day', '2 hours') |
+| **TIMESTAMPTZ** | Instante absoluto, guardado em UTC e convertido na leitura |
+| **Materializar** | Guardar um valor já calculado numa coluna, em vez de calculá-lo a cada consulta |
+| **notificar_em** | O instante do disparo: `prazo - aviso_previo` |
+| **Relógio de parede** | Regra baseada na hora local ("às 9h"), diferente de duração ("1 dia antes") |
+| **Lente** | Uma visualização alternativa dos mesmos dados, sem entidade nova |
+
+## 4.10 Notas soltas desta etapa
+
+O cartão ganha quatro campos, não dois. Além de `prazo` e `aviso_previo`, entram `notificar_em` (o instante do disparo, já calculado) e `notificado` (a flag de controle). A decisão de materializar `notificar_em` em vez de calcular na hora deixa a consulta do worker trivial e indexável — e ela se encaixa naturalmente com o controle de idempotência da Etapa 5.
+
+A regra que esconde o bug silencioso (4.3): mudar o prazo precisa recalcular `notificar_em` e resetar `notificado` para `false`. A segunda metade é a que escapa. Se ela adiar um cartão já notificado e a flag não voltar, o aviso nunca mais chega — e nada quebra, nada dá erro. Você descobriria semanas depois, pela usuária reclamando. Por isso virou um teste explícito.
+
+A limitação de fuso que vale saber agora (4.4): com `aviso_previo` como duração, você só expressa "X tempo antes". Uma regra como "me avise sempre na véspera às 9h" é de relógio de parede, não de intervalo — não cabe neste modelo. Se ela pedir isso depois, é mudança de modelagem, não ajuste. Está no roadmap.
+
+O calendário atravessa quadros, e isso corrige uma fraqueza do Trello de graça. A pergunta que ele responde é "o que eu tenho hoje?", e essa pergunta não respeita a divisão entre "Casa" e "Faculdade". Efeito colateral: aquela invisibilidade de trabalho espalhado por vários quadros, que é reclamação clássica de usuário veterano, fica parcialmente resolvida sem esforço adicional.
+
+E a seção 4.6 tem uma consequência de interface que vale carregar: criar cartão não pede data. Obrigar a preencher prazo em toda tarefa é atrito que faz abandonar app na primeira semana. A maioria dos cartões nunca terá data, o calendário vai parecer vazio no começo, e isso é o funcionamento normal — não um bug.
+
+---
+
 ## Próxima etapa
 
-**Etapa 4 — A dimensão tempo:** data no cartão e o calendário — a primeira etapa que faz o app ser, de fato, "kanban com tempo", e não só kanban.
+**Etapa 5 — Notificações:** o worker que roda sozinho — a primeira peça de arquitetura deste projeto que não é só a API respondendo requisições, e o primeiro problema realmente imprevisível da série.

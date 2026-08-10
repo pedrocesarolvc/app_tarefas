@@ -228,7 +228,7 @@ def test_cartao_sem_prazo_e_valido(cliente: TestClient):
     assert resposta.status_code == 201
     cartao = resposta.json()
     assert cartao["prazo"] is None
-    assert cartao["aviso_previo_minutos"] is None
+    assert cartao["aviso_previo"] is None
 
 
 def test_criar_lista_e_cartao_sempre_anexa_no_final(cliente: TestClient):

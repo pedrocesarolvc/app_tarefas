@@ -2,7 +2,7 @@
 Schemas Pydantic do Cartao — a tarefa.
 """
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from decimal import Decimal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -15,16 +15,16 @@ class CartaoCriar(BaseModel):
     sempre anexado ao final da lista; a rota calcula a posição via
     app/servicos/ordenacao.py.
 
-    `prazo` e `aviso_previo_minutos` já existem no schema porque já existem
-    no modelo (Etapa 2.5), mas nenhuma regra de negócio em torno deles
-    (por exemplo, "não faz sentido ter aviso sem prazo") está implementada
-    ainda — isso é conteúdo da Etapa 4. Por ora são só campos opcionais
-    guardados como vieram."""
+    `prazo` e `aviso_previo` são a dimensão tempo (Etapa 4.2) -- os dois
+    opcionais, e de propósito: a maioria dos cartões não terá nenhum dos
+    dois (Etapa 4.6), e criar cartão não deveria exigir preencher data.
+    `notificar_em`/`notificado` não aparecem aqui -- são calculados pela
+    rota via app/servicos/prazos.py, nunca recebidos do cliente."""
 
     titulo: str = Field(min_length=1, max_length=200)
     descricao: str | None = None
     prazo: datetime | None = None
-    aviso_previo_minutos: int | None = Field(default=None, ge=0)
+    aviso_previo: timedelta | None = None
 
 
 class CartaoAtualizar(BaseModel):
@@ -33,12 +33,17 @@ class CartaoAtualizar(BaseModel):
     uma operação com identidade própria (ver CartaoMover abaixo), não um
     campo a mais num PATCH genérico. Isso reflete a Etapa 2.3: mudar
     `lista_id` é mudar o estado do cartão, e vale a pena a rota deixar
-    essa intenção explícita."""
+    essa intenção explícita.
+
+    Mudar `prazo` ou `aviso_previo` por aqui recalcula `notificar_em` e
+    reseta `notificado` (Etapa 4.3) -- ver app/servicos/prazos.py e a
+    rota `atualizar_cartao` em app/rotas/cartoes.py, que é quem de fato
+    aplica essa regra."""
 
     titulo: str | None = Field(default=None, min_length=1, max_length=200)
     descricao: str | None = None
     prazo: datetime | None = None
-    aviso_previo_minutos: int | None = Field(default=None, ge=0)
+    aviso_previo: timedelta | None = None
 
 
 class CartaoMover(BaseModel):
@@ -77,7 +82,11 @@ class CartaoLeitura(BaseModel):
     # cliente nunca deveria fazer conta em cima dele.
     posicao: Decimal
     prazo: datetime | None
-    aviso_previo_minutos: int | None
+    aviso_previo: timedelta | None
+    # `notificar_em` e `notificado` (Etapa 4.3) são só leitura -- ninguém
+    # os envia, a API sempre os calcula (ver app/servicos/prazos.py).
+    notificar_em: datetime | None
+    notificado: bool
     arquivado: bool
     criado_em: datetime
 
