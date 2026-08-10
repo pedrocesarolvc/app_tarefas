@@ -3,6 +3,8 @@ Rotas de Cartao (a tarefa), aninhadas sob uma lista
 (/quadros/{quadro_id}/listas/{lista_id}/cartoes/...).
 """
 
+from decimal import Decimal
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -13,6 +15,7 @@ from app.modelos.cartao import Cartao
 from app.modelos.usuario import Usuario
 from app.rotas.listas import obter_lista_do_usuario
 from app.schemas.cartao import CartaoAtualizar, CartaoCriar, CartaoLeitura, CartaoMover
+from app.servicos.ordenacao import PosicaoInvalidaError, calcular_posicao
 
 roteador = APIRouter(prefix="/quadros/{quadro_id}/listas/{lista_id}/cartoes", tags=["cartões"])
 
@@ -31,6 +34,19 @@ def obter_cartao_do_usuario(
     return cartao
 
 
+def _obter_posicao_do_ultimo_cartao(sessao: Session, lista_id: int) -> Decimal | None:
+    """A posição do último cartão visível da lista (não arquivado), ou
+    None se a lista ainda não tem nenhum cartão. Só decide onde anexar um
+    cartão recém-criado (Etapa 3: um cartão novo sempre vai para o final
+    da lista) -- o cálculo em si é `calcular_posicao`."""
+    return sessao.scalar(
+        select(Cartao.posicao)
+        .where(Cartao.lista_id == lista_id, Cartao.arquivado.is_(False))
+        .order_by(Cartao.posicao.desc(), Cartao.id.desc())
+        .limit(1)
+    )
+
+
 @roteador.post("", response_model=CartaoLeitura, status_code=status.HTTP_201_CREATED)
 def criar_cartao(
     quadro_id: int,
@@ -39,8 +55,17 @@ def criar_cartao(
     usuario_atual: Usuario = Depends(obter_usuario_atual),
     sessao: Session = Depends(obter_sessao),
 ):
+    """Um cartão novo sempre entra no final da lista (Etapa 3: sem campo
+    `posicao` no schema -- ver o comentário em CartaoCriar). Mesmo caso de
+    borda "soltar no fim" da Etapa 3.7 usado em `criar_lista`
+    (app/rotas/listas.py)."""
     obter_lista_do_usuario(sessao, quadro_id, lista_id, usuario_atual)
-    cartao = Cartao(lista_id=lista_id, **dados.model_dump())
+    posicao_do_ultimo = _obter_posicao_do_ultimo_cartao(sessao, lista_id)
+    cartao = Cartao(
+        lista_id=lista_id,
+        posicao=calcular_posicao(anterior=posicao_do_ultimo, posterior=None),
+        **dados.model_dump(),
+    )
     sessao.add(cartao)
     sessao.commit()
     sessao.refresh(cartao)
@@ -56,7 +81,13 @@ def listar_cartoes(
     sessao: Session = Depends(obter_sessao),
 ):
     obter_lista_do_usuario(sessao, quadro_id, lista_id, usuario_atual)
-    consulta = select(Cartao).where(Cartao.lista_id == lista_id).order_by(Cartao.posicao)
+    # Desempate por `id` (Etapa 3.8) -- ver o comentário equivalente em
+    # listar_listas, app/rotas/listas.py.
+    consulta = (
+        select(Cartao)
+        .where(Cartao.lista_id == lista_id)
+        .order_by(Cartao.posicao, Cartao.id)
+    )
     if not incluir_arquivados:
         # Etapa 2.8: "arquivar um cartão o remove das consultas normais,
         # mas ele continua no banco" -- o filtro é o que faz a primeira
@@ -100,17 +131,44 @@ def mover_cartao(
     porque, por desenho, todas são permitidas (Etapa 2.4: "não existem
     transições inválidas").
 
-    `dados.lista_id` é validado com `obter_lista_do_usuario` sob o mesmo
-    `quadro_id` da URL -- ou seja, um cartão só pode ser movido para outra
-    lista do MESMO quadro. Mover entre quadros diferentes não é uma
-    operação descrita na documentação (Etapa 2), então não é uma decisão
-    deste código tomar sozinho; fica de fora até existir uma razão
-    concreta para o contrário.
+    A posição no destino vem de vizinhos, não de um número calculado pelo
+    cliente (Etapa 3.3/3.6): `cartao_anterior_id` e `cartao_posterior_id`
+    (ver CartaoMover, app/schemas/cartao.py) são buscados DENTRO da lista
+    de destino -- `obter_cartao_do_usuario` com `dados.lista_id` garante
+    isso e, de quebra, garante que a lista de destino é do mesmo usuário e
+    do mesmo quadro (mover entre quadros diferentes não está no escopo,
+    ver o comentário abaixo).
+
+    Só o cartão movido é escrito; os vizinhos nunca são tocados (Etapa
+    3.9: "mover altera apenas aquele registro").
     """
     cartao = obter_cartao_do_usuario(sessao, quadro_id, lista_id, cartao_id, usuario_atual)
+
+    # `obter_lista_do_usuario` sob o mesmo `quadro_id` da URL: um cartão só
+    # pode ser movido para outra lista do MESMO quadro. Mover entre
+    # quadros diferentes não é uma operação descrita na documentação
+    # (Etapa 2), então não é uma decisão deste código tomar sozinho.
     obter_lista_do_usuario(sessao, quadro_id, dados.lista_id, usuario_atual)
+
+    posicao_anterior = None
+    if dados.cartao_anterior_id is not None:
+        posicao_anterior = obter_cartao_do_usuario(
+            sessao, quadro_id, dados.lista_id, dados.cartao_anterior_id, usuario_atual
+        ).posicao
+
+    posicao_posterior = None
+    if dados.cartao_posterior_id is not None:
+        posicao_posterior = obter_cartao_do_usuario(
+            sessao, quadro_id, dados.lista_id, dados.cartao_posterior_id, usuario_atual
+        ).posicao
+
+    try:
+        nova_posicao = calcular_posicao(anterior=posicao_anterior, posterior=posicao_posterior)
+    except PosicaoInvalidaError as erro:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(erro)) from erro
+
     cartao.lista_id = dados.lista_id
-    cartao.posicao = dados.nova_posicao
+    cartao.posicao = nova_posicao
     sessao.commit()
     sessao.refresh(cartao)
     return cartao

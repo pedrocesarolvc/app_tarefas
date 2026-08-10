@@ -10,9 +10,10 @@ comportamento.
 """
 
 from datetime import datetime, timezone
+from decimal import Decimal
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, Numeric, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -40,9 +41,13 @@ class Cartao(Base):
     # Opcional: um cartão pode não ter descrição nenhuma, só um título.
     descricao: Mapped[str | None] = mapped_column(Text, nullable=True)
 
-    # Mesma ressalva de app/modelos/lista.py: tipo provisório até a Etapa 3
-    # decidir o esquema definitivo de indexação fracionária.
-    posicao: Mapped[float] = mapped_column(Float, nullable=False)
+    # POSIÇÃO — indexação fracionária (Etapa 3.6). Mesmo raciocínio de
+    # app/modelos/lista.py: `Numeric` sem precisão/escala é um NUMERIC de
+    # precisão arbitrária no PostgreSQL, que não colapsa como `Float`
+    # colapsaria depois de muitas inserções no mesmo ponto (Etapa 3.4). O
+    # valor sempre vem de app/servicos/ordenacao.py, nunca calculado à mão
+    # numa rota.
+    posicao: Mapped[Decimal] = mapped_column(Numeric, nullable=False)
 
     # --- A dimensão tempo (Etapa 1.3 / 2.5) ---
     #

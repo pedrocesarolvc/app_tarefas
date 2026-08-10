@@ -10,9 +10,10 @@ listas que quiser, e isso sozinho define o fluxo de trabalho dela.
 """
 
 from datetime import datetime, timezone
+from decimal import Decimal
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, String
+from sqlalchemy import Boolean, DateTime, ForeignKey, Numeric, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -31,16 +32,15 @@ class Lista(Base):
 
     nome: Mapped[str] = mapped_column(String(120), nullable=False)
 
-    # POSIÇÃO — DECISÃO PROVISÓRIA.
-    # A Etapa 2.5 da documentação é explícita: "o tipo de posicao fica em
-    # aberto de propósito" — a definição final (número fracionário vs.
-    # texto ordenável, e como lidar com a armadilha de precisão que a
-    # indexação fracionária esconde) é o assunto inteiro da Etapa 3, que
-    # ainda não foi escrita. `Float` aqui é só o suficiente para já não ser
-    # inteiro consecutivo (o que a Etapa 1.5 já descartou) e permitir o
-    # resto do CRUD ser construído e testado agora. Espere isto mudar de
-    # tipo quando a Etapa 3 chegar — é uma decisão pendente, não uma final.
-    posicao: Mapped[float] = mapped_column(Float, nullable=False)
+    # POSIÇÃO — indexação fracionária (Etapa 3.6).
+    # `Numeric` sem precisão/escala definidas vira um NUMERIC de precisão
+    # arbitrária no PostgreSQL: o ponto médio entre dois vizinhos nunca
+    # colapsa, por mais vezes que a usuária arraste um cartão para o mesmo
+    # lugar (a armadilha de precisão da Etapa 3.4, que aconteceria com
+    # `Float`/float64 depois de ~52 inserções no mesmo ponto). Ninguém
+    # escreve neste campo diretamente com um número calculado à mão — todo
+    # cálculo de posição passa por app/servicos/ordenacao.py.
+    posicao: Mapped[Decimal] = mapped_column(Numeric, nullable=False)
 
     # A Etapa 2.5 (o diagrama de entidades) não lista `arquivado` para
     # Lista — só para Cartão. Mas a Etapa 2.7 ("Apagar, ou arquivar?") é
@@ -57,10 +57,13 @@ class Lista(Base):
 
     quadro: Mapped["Quadro"] = relationship(back_populates="listas")
 
-    # Os cartões desta lista, sempre ordenados por `posicao` — mesma lógica
-    # do relacionamento `Quadro.listas`.
+    # Os cartões desta lista, ordenados por `posicao` e, em caso de empate,
+    # por `id` (Etapa 3.8: "nunca ordene só por posição"). Duas inserções
+    # concorrentes no mesmo intervalo podem calcular o mesmo ponto médio —
+    # não é corrupção, é ambiguidade, e o `id` a desfaz de forma
+    # determinística e igual para todo mundo que consultar.
     cartoes: Mapped[list["Cartao"]] = relationship(
         back_populates="lista",
         cascade="all, delete-orphan",
-        order_by="Cartao.posicao",
+        order_by="Cartao.posicao, Cartao.id",
     )

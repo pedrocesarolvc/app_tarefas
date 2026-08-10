@@ -7,7 +7,7 @@
 |---|---|---|
 | **1** | Visão, domínio e escopo | ✅ escrita |
 | **2** | O modelo kanban — quadro, lista, cartão | ✅ escrita |
-| 3 | Ordenação — indexação fracionária | ⬜ pendente |
+| **3** | Ordenação — indexação fracionária | ✅ escrita |
 | 4 | A dimensão tempo — data no cartão e o calendário | ⬜ pendente |
 | 5 | Notificações — o worker que roda sozinho | ⬜ pendente |
 | 6 | Tempo real — WebSocket e atualização otimista | ⬜ pendente |
@@ -303,6 +303,164 @@ O último importa mais do que parece: **a maioria dos cartões não vai ter praz
 
 ---
 
+# Etapa 3 — Ordenação
+
+## 3.1 O que esta etapa resolve
+
+Uma pergunta que parece trivial: como guardar a ordem dos cartões dentro de uma lista, sabendo que a usuária vai arrastá-los para qualquer posição?
+
+É o problema mais bonito do domínio. A solução ingênua funciona nos primeiros testes e quebra de duas formas diferentes depois — uma por desempenho, outra por corrupção de dados. E a solução correta é curta, elegante, e esconde uma armadilha numérica que quase todo mundo descobre em produção.
+
+Vale dizer de saída: a decisão desta etapa é a mesma que torna a Etapa 6 (tempo real) fácil. Elas parecem independentes e não são.
+
+## 3.2 A abordagem óbvia, e por que ela quebra
+
+Cada cartão tem uma coluna `posicao` com um inteiro: 1, 2, 3, 4, 5. Ordena por ela.
+
+Agora a usuária arrasta o cartão da posição 5 para a posição 2:
+
+```
+antes:  [A:1] [B:2] [C:3] [D:4] [E:5]
+depois: [A:1] [E:2] [B:3] [C:4] [D:5]
+                     ↑     ↑     ↑
+              três cartões renumerados sem ninguém pedir
+```
+
+Mover um cartão exigiu escrever em quatro. Numa lista de 300 cartões, arrastar um item para o topo dispara 300 UPDATEs.
+
+E esse é o problema pequeno. O grande aparece com dois clientes: se duas escritas de renumeração se cruzam no meio do caminho, a ordem final não fica "estranha" — fica corrompida, com posições duplicadas e cartões fora de lugar. Como o app terá tempo real (Etapa 6), isso deixa de ser hipotético.
+
+## 3.3 A virada: os números não precisam ser consecutivos
+
+A pergunta que destrava tudo: por que 1, 2, 3?
+
+A ordenação exige uma única propriedade: dados dois cartões, saber qual vem antes. Inteiros consecutivos são uma restrição autoimposta — e é exatamente ela que obriga a renumerar.
+
+Solte a restrição. Se os cartões estão em 1.0, 2.0 e 3.0, e você quer inserir entre o primeiro e o segundo:
+
+```
+posicao = (1.0 + 2.0) / 2 = 1.5
+```
+
+Um único UPDATE. Nenhum outro cartão é tocado. Nenhuma coordenação, nenhuma corrida.
+
+Isso se chama **indexação fracionária** (*fractional indexing*), e é o que Trello, Figma, Notion e praticamente todo app com arrastar-e-soltar usam.
+
+Uma precisão importante: a posição é relativa à lista, não global. Dois cartões em listas diferentes podem ter posição 1.5 sem qualquer conflito — o `ORDER BY` sempre acontece dentro de uma lista. Mover um cartão entre listas é mudar `lista_id` e calcular uma posição nova no destino.
+
+## 3.4 A armadilha: a precisão acaba
+
+Aqui está o detalhe que separa quem leu um tutorial de quem já levou o bug em produção.
+
+A usuária arrasta um cartão para o topo. Depois outro. Depois outro. Cada inserção pega o ponto médio do intervalo que sobrou:
+
+```
+1.0                      ← cartão de referência
+1.5      → intervalo 0.5
+1.25     → intervalo 0.25
+1.125    → intervalo 0.125
+1.0625   → intervalo 0.0625
+...
+1.0000000000000002       → intervalo ≈ 2⁻⁵²
+1.0                      ← COLAPSO: (1.0 + 1.0000000000000002)/2 == 1.0
+```
+
+Cada inserção corta o intervalo pela metade. Um float64 tem 52 bits de mantissa — depois de aproximadamente 52 inserções no mesmo ponto, o ponto médio entre dois números é igual a um deles. Dois cartões passam a ter a mesma posição, e a ordem entre eles vira indefinida: muda a cada consulta.
+
+Cinquenta arrastes não é cenário teórico. É uma pessoa organizando o quadro numa tarde.
+
+## 3.5 As quatro saídas
+
+| Estratégia | Como funciona | Custo |
+|---|---|---|
+| Rebalanceamento periódico | Espaça muito no início (65536, 131072...) e renumera a lista em segundo plano quando o intervalo aperta | O O(n) volta, amortizado; renumerar durante movimentos concorrentes é chato |
+| Rank lexicográfico (LexoRank) | A posição vira texto. Entre "aaa" e "aab" cabe "aaaa" — sempre dá para acrescentar um caractere | As strings crescem com o tempo; ainda vale rebalancear, mas raramente |
+| Precisão arbitrária (NUMERIC) | Decimal sem limite de precisão no PostgreSQL. O ponto médio nunca colapsa | Valores acumulam dígitos; comparação um pouco mais lenta |
+| Lista ligada | Cada cartão aponta para o próximo | Perde o `ORDER BY`; um ponteiro quebrado parte a lista em duas |
+
+Sobre o LexoRank: ele funciona porque, em ordenação lexicográfica, uma string que é prefixo de outra vem antes. Como sempre se pode acrescentar um caractere, nunca acaba — diferente do float, não existe mantissa para estourar.
+
+Sobre a lista ligada: parece elegante e é a pior das quatro na prática. Ler a lista em ordem exige percorrer os ponteiros um a um — em SQL, uma CTE recursiva — e a fragilidade estrutural troca um problema raro por um pior.
+
+## 3.6 A decisão do v1
+
+**NUMERIC no PostgreSQL, com ponto médio.**
+
+O motivo: elimina a armadilha por construção, o código tem poucas linhas, e a desvantagem (valores longos) só importaria numa escala que este app não terá. Quando o volume é pequeno, corretude simples vence microdesempenho.
+
+E o cálculo fica isolado num único lugar — `backend/app/servicos/ordenacao.py`, da estrutura da Etapa 1. Nada no resto do código sabe como a posição é calculada; só chama uma função que devolve "a posição entre A e B".
+
+Isso não é organização estética: é o que torna a estratégia trocável. Se você quiser depois encarar o LexoRank — e ele é, de longe, o quebra-cabeça de algoritmo mais divertido deste projeto —, a troca mexe num arquivo, não em dez. Vale considerar como desafio opcional, com a segurança de que o v1 já funciona sem ele.
+
+## 3.7 Os casos de borda
+
+O ponto médio resolve o caso "entre dois cartões". Faltam três situações, e cada uma precisa de uma convenção:
+
+| Situação | O que fazer |
+|---|---|
+| Lista vazia | Posição inicial arbitrária (ex.: 1000) |
+| Soltar no topo | Não há vizinho antes. Pega a posição do primeiro e subtrai um intervalo fixo — ou divide por dois, caminhando em direção a zero |
+| Soltar no fim | Não há vizinho depois. Pega a posição do último e soma um intervalo fixo |
+
+A convenção do topo merece atenção: se você sempre dividir por dois rumo a zero, os valores encolhem indefinidamente e você reencontra o problema de precisão pelo outro lado — só que agora perto do zero. Somar e subtrair um intervalo fixo (em vez de dividir) mantém os valores em faixa saudável, e com NUMERIC nenhum dos dois caminhos quebra de fato.
+
+## 3.8 O desempate: nunca ordene só por posição
+
+Com indexação fracionária, duas inserções simultâneas no mesmo intervalo calculam o mesmo ponto médio. Dois cartões com posição idêntica.
+
+Não é catástrofe — é ambiguidade. E a defesa é uma linha:
+
+```sql
+ORDER BY posicao, id
+```
+
+O `id` é o critério de desempate. A ordem pode não ser a que ambos esperavam, mas é determinística e igual para todos os clientes — que é o que de fato importa. Sem o desempate, dois clientes podem exibir a mesma lista em ordens diferentes, e o bug resultante é daqueles que fazem duvidar da própria sanidade.
+
+**Regra: toda consulta ordenada por posição carrega um segundo critério estável.**
+
+## 3.9 Como testar
+
+Ordenação é determinística e testa-se bem — aproveite, porque a Etapa 5 e a 6 são bem menos previsíveis:
+
+- Inserir entre dois cartões produz posição estritamente entre as duas
+- Inserir no topo produz posição menor que a do primeiro
+- Inserir no fim produz posição maior que a do último
+- Inserir em lista vazia funciona
+- Mover um cartão altera apenas aquele cartão — nenhum outro registro é escrito
+- Mover entre listas atualiza `lista_id` e recalcula a posição no destino
+- Cinquenta inserções consecutivas no mesmo ponto mantêm a ordem correta — o teste que prova que a armadilha da 3.4 está fechada
+- Duas posições iguais são desempatadas de forma estável pelo `id`
+
+O sétimo é o teste de assinatura desta etapa. Com posições inteiras ele nem faria sentido; com float, ele falha. Vê-lo passar é a confirmação de que a escolha da 3.6 foi certa.
+
+## 3.10 Glossário desta etapa
+
+| Termo | O que é |
+|---|---|
+| **Indexação fracionária** | Ordenar por valores que sempre aceitam um ponto médio entre dois vizinhos |
+| **Mantissa** | A parte de um número de ponto flutuante que guarda os dígitos significativos. No float64, 52 bits |
+| **LexoRank** | Ordenação por strings, onde sempre cabe um valor entre dois — usada no Jira |
+| **NUMERIC** | Tipo decimal de precisão arbitrária do PostgreSQL |
+| **Rebalanceamento** | Renumerar a lista inteira para recuperar espaço entre as posições |
+| **Desempate estável** | Segundo critério de ordenação que garante resultado idêntico em qualquer consulta |
+| **Posição relativa à lista** | A posição só faz sentido dentro de uma lista; não é global |
+
+## 3.11 Notas soltas desta etapa
+
+Um punhado de observações que vale manter registradas, além do texto corrido acima:
+
+Os casos de borda (3.7) são o que a conversa inicial sobre esta etapa não cobriu de saída. O ponto médio resolve "entre dois cartões" — mas soltar no topo, no fim, ou numa lista vazia não tem vizinho dos dois lados. Cada um precisa de convenção. E tem uma pegadinha ali: se você sempre dividir por dois rumo ao zero ao inserir no topo, os valores encolhem indefinidamente e você reencontra o problema de precisão pelo outro lado. Somar e subtrair um intervalo fixo mantém tudo em faixa saudável.
+
+A posição é relativa à lista, não global (3.3). Dois cartões em listas diferentes podem ter posição 1.5 sem conflito nenhum. E mover entre listas é duas coisas: mudar `lista_id` e calcular posição nova no destino. Parece óbvio escrito, mas é fonte comum de bug quando se pensa na posição como um número universal.
+
+O isolamento em `servicos/ordenacao.py` (3.6) é uma decisão de arquitetura, não de arrumação. Nada no resto do código sabe como a posição é calculada — só chama "me dê a posição entre A e B". Isso é o que torna a estratégia trocável: se você quiser encarar o LexoRank depois, mexe num arquivo. NUMERIC fica como decisão do v1 justamente para o app existir logo, com o LexoRank disponível como desafio opcional sem risco.
+
+E o teste de assinatura da etapa: cinquenta inserções consecutivas no mesmo ponto mantendo a ordem correta. Com posições inteiras esse teste nem faria sentido; com float, ele falha. Vê-lo passar é a prova de que a armadilha está fechada.
+
+Uma ponte para adiante: a decisão desta etapa é a que vai tornar a Etapa 6 fácil. Como a operação vira "cartão X vai para lista B, posição 2.5" — absoluta, independente do estado anterior —, dois clientes podem mandar comandos simultâneos sem invalidar um ao outro. Se a posição fosse inteira e consecutiva, mover significaria "renumere todos os outros", uma operação relativa, e a sincronização exigiria artilharia pesada. Duas etapas que parecem separadas e são a mesma decisão.
+
+---
+
 ## Próxima etapa
 
-**Etapa 3 — Ordenação:** por que posições inteiras quebram, o que é indexação fracionária, e a armadilha de precisão que ela esconde — o primeiro dos três problemas técnicos de verdade do projeto.
+**Etapa 4 — A dimensão tempo:** data no cartão e o calendário — a primeira etapa que faz o app ser, de fato, "kanban com tempo", e não só kanban.

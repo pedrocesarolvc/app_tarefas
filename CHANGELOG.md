@@ -6,7 +6,32 @@ Cada entrada referencia a seção da documentação (`docs/documentacao.md`) que
 
 ## [Não lançado]
 
-Nada pendente no momento. Próximo passo natural: escrever a Etapa 3 (ordenação por indexação fracionária) e substituir o `Float` provisório de `posicao` pelo esquema definitivo.
+Nada pendente no momento. Próximo passo natural: escrever a Etapa 4 (a dimensão tempo — data no cartão e o calendário).
+
+## [0.2.0] - 2026-08-10
+
+Implementa a Etapa 3 (ordenação por indexação fracionária), substituindo o `Float` provisório da Etapa 2 pelo esquema definitivo.
+
+### Adicionado
+
+- `backend/app/servicos/ordenacao.py`: o único lugar do sistema que calcula uma posição (`calcular_posicao`), cobrindo os quatro casos da Etapa 3 (lista vazia, topo, fim, entre dois vizinhos). O cálculo do ponto médio roda num `decimal.localcontext` com 200 dígitos de precisão — o padrão do Python (28 dígitos) não é de fato "arbitrário" como o `NUMERIC` do PostgreSQL, e bisecções sucessivas no mesmo ponto reintroduziriam a própria armadilha da Etapa 3.4 um nível abaixo, dentro do cálculo em Python, se a precisão não fosse elevada explicitamente.
+- `PosicaoInvalidaError`: erro dedicado para quando `anterior`/`posterior` chegam fora de ordem a `calcular_posicao` — as rotas convertem para 400.
+- `ListaMover` e a rota `POST /quadros/{quadro_id}/listas/{lista_id}/mover`: reordena colunas por vizinhos (`lista_anterior_id`/`lista_posterior_id`), não por número.
+- `CartaoMover` redesenhado: `nova_posicao` (Etapa 2) deu lugar a `cartao_anterior_id`/`cartao_posterior_id` — a posição no destino é sempre recalculada a partir dos vizinhos de lá, nunca recebida pronta do cliente.
+- Testes da Etapa 3 (`backend/tests/test_ordenacao.py`), cobrindo os oito itens do checklist 3.9 — incluindo o teste de assinatura da etapa (cinquenta inserções consecutivas no mesmo ponto sem colapso de precisão), que roda contra `Decimal` puro, sem banco.
+- Fixture `sessao_bruta` em `backend/tests/conftest.py`: acesso direto ao banco de teste, usado só para forçar duas posições idênticas e testar o desempate por `id` (Etapa 3.8) — algo que a API sozinha nunca produz.
+
+### Alterado
+
+- `Lista.posicao` e `Cartao.posicao`: de `Float` para `Numeric` (sem precisão/escala definidas — `NUMERIC` de precisão arbitrária no PostgreSQL). Os schemas de leitura (`ListaLeitura`, `CartaoLeitura`) agora expõem `Decimal`, não `float`.
+- `ListaCriar` e `CartaoCriar` perderam o campo `posicao`: criar uma lista ou cartão agora sempre anexa ao final (o caso de borda "soltar no fim" da Etapa 3.7) — a rota calcula a posição chamando o serviço, o cliente não envia mais um número escolhido por conta própria.
+- Toda consulta que ordena por `posicao` (relacionamentos `Quadro.listas`, `Lista.cartoes`, e as rotas `listar_listas`/`listar_cartoes`) passou a desempatar por `id` (Etapa 3.8: "nunca ordene só por posição").
+- Testes da Etapa 2 (`backend/tests/test_modelo_kanban.py`) ajustados ao novo contrato: nenhuma criação informa `posicao` mais; o teste "listas voltam na ordem definida por posicao" agora cria fora de ordem e usa a rota `mover_lista` para corrigir, em vez de informar posições arbitrárias.
+
+### Decisões registradas nesta etapa (não estão na documentação ainda)
+
+- Mover um cartão dentro da MESMA lista (reordenar sem trocar de coluna) usa a mesma rota `POST .../mover`, passando o próprio `lista_id` atual como destino — a documentação da Etapa 3 não distingue os dois casos, e tratá-los com o mesmo endpoint evitou duplicar a lógica de cálculo de vizinhos.
+- A posição do "último item visível" (usada para decidir onde anexar uma criação) ignora itens arquivados — um cartão/lista arquivado não deveria empurrar a posição de itens novos, mesmo continuando no banco (Etapa 2.7).
 
 ## [0.1.0] - 2026-08-03
 

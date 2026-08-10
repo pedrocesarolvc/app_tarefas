@@ -6,14 +6,14 @@ A documentação completa (visão, domínio, decisões de arquitetura, e o plano
 
 ## Estado atual
 
-Implementadas: **Etapa 1** (visão, domínio e escopo) e **Etapa 2** (o modelo kanban — quadro, lista, cartão). Isso significa que hoje existem:
+Implementadas: **Etapa 1** (visão, domínio e escopo), **Etapa 2** (o modelo kanban — quadro, lista, cartão) e **Etapa 3** (ordenação por indexação fracionária). Isso significa que hoje existem:
 
 - A API (backend/) com CRUD completo de quadro, lista e cartão, login simples por sessão, e a fronteira de posse entre usuários.
 - Os campos `prazo` e `aviso_previo_minutos` já existem no modelo do cartão (fazem parte do desenho da Etapa 2.5), mas **sem nenhuma lógica de calendário ou notificação** — isso é conteúdo das Etapas 4 e 5, ainda não escritas.
-- O campo `posicao` (ordenação de listas e cartões) usa `Float` como um placeholder deliberadamente provisório. O esquema definitivo de indexação fracionária é o assunto inteiro da Etapa 3.
+- Ordenação de listas e cartões por indexação fracionária (Etapa 3): o campo `posicao` é `NUMERIC` (Decimal), calculado sempre a partir de vizinhos por `backend/app/servicos/ordenacao.py` — nunca um número escolhido pelo cliente. Criar uma lista/cartão sempre anexa no final; reordenar é feito pelas rotas `POST .../mover`, que recebem os ids dos vizinhos onde o item foi solto, não uma posição pronta.
 - Um esqueleto mínimo de frontend (Vite + React + TypeScript), só com o ferramental — nenhuma tela de kanban foi desenhada ainda.
 
-Ainda **não** existem: worker de notificação, WebSocket/tempo real, calendário, service worker / PWA instalável. Essas pastas (`backend/worker/`, `backend/app/realtime/`, `backend/app/servicos/ordenacao.py`, `frontend/src/sw.ts`) só nascem quando as etapas correspondentes da documentação forem escritas — ver a regra "pasta nasce quando o código nasce" na seção 1.6 da documentação.
+Ainda **não** existem: worker de notificação, WebSocket/tempo real, calendário, service worker / PWA instalável. Essas pastas (`backend/worker/`, `backend/app/realtime/`, `frontend/src/sw.ts`) só nascem quando as etapas correspondentes da documentação forem escritas — ver a regra "pasta nasce quando o código nasce" na seção 1.6 da documentação.
 
 Veja o [`CHANGELOG.md`](CHANGELOG.md) para o histórico detalhado do que foi feito.
 
@@ -59,7 +59,7 @@ cd backend
 pytest -v
 ```
 
-Os testes rodam contra um SQLite em memória (não precisam do Postgres no ar) e cobrem, item por item, o checklist da Etapa 2.8 da documentação — ver `backend/tests/test_modelo_kanban.py`.
+Os testes rodam contra um SQLite em memória (não precisam do Postgres no ar) e cobrem, item por item, os checklists das Etapas 2.8 (`backend/tests/test_modelo_kanban.py`) e 3.9 (`backend/tests/test_ordenacao.py`). O teste de assinatura da Etapa 3 — cinquenta inserções consecutivas no mesmo ponto sem colapso de precisão — roda contra `Decimal` puro, sem banco nenhum envolvido.
 
 ## Rodando com Docker Compose
 

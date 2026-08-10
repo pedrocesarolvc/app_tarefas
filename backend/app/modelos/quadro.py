@@ -44,8 +44,10 @@ class Quadro(Base):
     # em Usuario, isso é intencional só para o caso raro de apagar o quadro
     # inteiro — o "excluir" do dia a dia sobre lista/cartão continua sendo
     # arquivar (Etapa 2.7), nunca este cascade.
+    # Desempate por `id` além de `posicao` (Etapa 3.8) — ver o comentário
+    # equivalente em Lista.cartoes, app/modelos/lista.py.
     listas: Mapped[list["Lista"]] = relationship(
         back_populates="quadro",
         cascade="all, delete-orphan",
-        order_by="Lista.posicao",
+        order_by="Lista.posicao, Lista.id",
     )
