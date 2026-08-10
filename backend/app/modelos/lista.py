@@ -13,10 +13,10 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Numeric, String
+from sqlalchemy import Boolean, ForeignKey, Numeric, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.database import Base
+from app.database import Base, TZDateTime
 
 if TYPE_CHECKING:
     from app.modelos.cartao import Cartao
@@ -52,7 +52,7 @@ class Lista(Base):
     arquivado: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
 
     criado_em: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+        TZDateTime, default=lambda: datetime.now(timezone.utc)
     )
 
     quadro: Mapped["Quadro"] = relationship(back_populates="listas")

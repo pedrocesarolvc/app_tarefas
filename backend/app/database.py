@@ -6,8 +6,11 @@ por onde os modelos (em app/modelos/) conversam com o PostgreSQL. Toda
 rota da API pede uma sessão daqui através da função `obter_sessao`.
 """
 
-from sqlalchemy import create_engine
+from datetime import timezone
+
+from sqlalchemy import DateTime, create_engine
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
+from sqlalchemy.types import TypeDecorator
 
 from app.config import configuracoes
 
@@ -28,6 +31,42 @@ engine = create_engine(configuracoes.database_url)
 # banco em momentos imprevisíveis (a cada consulta), o que dificulta
 # raciocinar sobre quando exatamente uma escrita acontece.
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+
+class TZDateTime(TypeDecorator):
+    """Um `DateTime(timezone=True)` que garante ida e volta consistente
+    entre dialetos -- usado por todo modelo em vez do tipo genérico do
+    SQLAlchemy direto.
+
+    O motivo de existir: o PostgreSQL (produção, ver app/config.py)
+    preserva datetimes com fuso horário nativamente (é o TIMESTAMPTZ das
+    Etapas 2 e 4). O SQLite (usado pelos testes -- ver tests/conftest.py)
+    não tem tipo de data nativo; por baixo dos panos ele guarda texto, e a
+    implementação padrão do SQLAlchemy para esse dialeto devolve o valor
+    de volta SEM `tzinfo`, mesmo tendo sido gravado como aware. Um
+    datetime "agora" (aware, ex.: `datetime.now(timezone.utc)`) subtraído
+    de um valor lido do banco (naive) estoura `TypeError` -- foi
+    exatamente isso que o worker (Etapa 5.3, `agora - cartao.notificar_em`)
+    encontrou contra o banco de teste.
+
+    Este tipo reattacha `tzinfo=UTC` num valor que chegar sem ele, tanto
+    ao gravar quanto ao ler -- inofensivo contra o PostgreSQL (que já
+    devolve aware; a condição nunca dispara) e é o que faz o mesmo código
+    funcionar sem ramificação por dialeto contra os dois bancos.
+    """
+
+    impl = DateTime(timezone=True)
+    cache_ok = True
+
+    def process_bind_param(self, value, dialect):
+        if value is not None and value.tzinfo is None:
+            value = value.replace(tzinfo=timezone.utc)
+        return value
+
+    def process_result_value(self, value, dialect):
+        if value is not None and value.tzinfo is None:
+            value = value.replace(tzinfo=timezone.utc)
+        return value
 
 
 class Base(DeclarativeBase):

@@ -6,10 +6,10 @@ Modelo Quadro (board) — o agrupamento maior, ex.: "Casa", "Faculdade"
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
-from sqlalchemy import DateTime, ForeignKey, String
+from sqlalchemy import ForeignKey, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.database import Base
+from app.database import Base, TZDateTime
 
 if TYPE_CHECKING:
     from app.modelos.lista import Lista
@@ -29,7 +29,7 @@ class Quadro(Base):
     nome: Mapped[str] = mapped_column(String(120), nullable=False)
 
     criado_em: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+        TZDateTime, default=lambda: datetime.now(timezone.utc)
     )
 
     usuario: Mapped["Usuario"] = relationship(back_populates="quadros")

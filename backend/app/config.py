@@ -37,6 +37,27 @@ class Configuracoes(BaseSettings):
     # 30 dias — um app pessoal não precisa reautenticar toda hora.
     duracao_sessao_segundos: int = 60 * 60 * 24 * 30
 
+    # --- VAPID (Etapa 5.5) ---
+    # O par de chaves que identifica ESTE servidor perante o serviço de
+    # push (Google, no Chrome) — é o que impede qualquer um de mandar
+    # notificação em nome do app. A pública vai para o frontend (usada ao
+    # criar uma assinatura); a privada assina os envios do worker
+    # (backend/worker/push.py) e nunca deve sair do backend.
+    #
+    # Sem valor padrão de propósito — diferente de `chave_secreta` acima,
+    # não existe uma chave VAPID "de desenvolvimento" plausível: ou o par
+    # é gerado de verdade (ver backend/.env.example), ou o envio de push
+    # simplesmente não funciona. O resto da aplicação continua de pé sem
+    # elas — só o worker fica sem conseguir enviar (mas ainda marca
+    # avisos atrasados corretamente e não quebra).
+    vapid_public_key: str | None = None
+    vapid_private_key: str | None = None
+    # O "claim" `sub` exigido pelo protocolo VAPID — um contato (e-mail ou
+    # URL) que o serviço de push pode usar para falar com o dono do
+    # servidor em caso de abuso. Tem um valor padrão inofensivo porque,
+    # ao contrário das chaves, não é secreto nem impede nada de subir.
+    vapid_subject: str = "mailto:contato@example.com"
+
     # model_config diz ao pydantic-settings para também procurar um arquivo
     # `.env` na raiz do backend, além das variáveis de ambiente reais do
     # sistema operacional. Isso facilita o desenvolvimento local: em vez de

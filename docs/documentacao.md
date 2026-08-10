@@ -9,7 +9,7 @@
 | **2** | O modelo kanban — quadro, lista, cartão | ✅ escrita |
 | **3** | Ordenação — indexação fracionária | ✅ escrita |
 | **4** | A dimensão tempo — data no cartão e o calendário | ✅ escrita |
-| 5 | Notificações — o worker que roda sozinho | ⬜ pendente |
+| **5** | Notificações — o worker que roda sozinho | ✅ escrita |
 | 6 | Tempo real — WebSocket e atualização otimista | ⬜ pendente |
 | 7 | Entrega — API, PWA, testes e Docker | ⬜ pendente |
 
@@ -612,6 +612,186 @@ E a seção 4.6 tem uma consequência de interface que vale carregar: criar cart
 
 ---
 
+# Etapa 5 — Notificações
+
+## 5.1 A virada arquitetural
+
+Até aqui, tudo no app aconteceu porque alguém clicou. Uma requisição chega, o servidor responde, acabou. É o modelo de todos os seus projetos anteriores.
+
+A notificação quebra isso. Ela precisa acontecer porque o tempo passou — com o app fechado, o celular no bolso, ninguém olhando. Não há requisição para responder.
+
+Isso exige uma peça que o projeto ainda não tem: um processo com ciclo de vida próprio, que acorda sozinho, verifica o mundo e age. É a diferença entre um sistema reativo e um sistema que também é ativo, e é o desafio central desta etapa.
+
+## 5.2 O worker: por que separado da API
+
+A tentação é colocar um agendador dentro do próprio processo do FastAPI — existe biblioteca para isso, e funciona. Mas três problemas aparecem:
+
+Reiniciar a API mata o agendador. Todo deploy vira uma janela cega onde nada é notificado.
+
+Duas instâncias da API viram notificação duplicada. Se um dia o app rodar com dois processos, ambos acordam e ambos notificam o mesmo cartão.
+
+Trabalho pesado disputa com as requisições. Enviar notificações trava o processo que deveria estar respondendo a usuária.
+
+Decisão do v1: um processo separado, na pasta `backend/worker/`. Ele compartilha os modelos e o banco com a API, mas tem vida própria — sobe junto no docker-compose como um serviço distinto.
+
+Para o v1, um laço simples basta: acorda, consulta, envia, dorme. A resposta de produção seria uma fila com agendador (ARQ, Celery beat), e trocar depois é um upgrade natural — mas arrastar Redis e broker agora adicionaria infraestrutura sem ensinar o conceito, que é o que interessa aqui.
+
+## 5.3 O laço
+
+O coração do worker é uma consulta:
+
+```sql
+SELECT c.id, c.titulo, c.prazo, q.usuario_id
+FROM cartao c
+JOIN lista l  ON l.id = c.lista_id
+JOIN quadro q ON q.id = l.quadro_id
+WHERE c.notificar_em <= now()
+  AND c.notificado = false
+  AND c.arquivado  = false;
+```
+
+Simples — e é simples porque a Etapa 4 materializou `notificar_em`. Sem aquela decisão, esta consulta teria uma conta entre colunas e um índice de expressão.
+
+Frequência: a cada minuto é suficiente. Isso significa até 60 segundos de atraso no aviso, o que é irrelevante para prazos medidos em horas ou dias. Rodar a cada segundo só gastaria recurso.
+
+Repare no `<= now()`, não numa janela de tempo. A consulta pega tudo que já venceu, não só o que venceu no último minuto. Essa escolha torna o worker resistente a queda: se ele ficar fora do ar por três horas, ao voltar ele encontra e envia tudo que ficou para trás. Uma janela (entre agora-1min e agora) perderia silenciosamente esses avisos.
+
+O efeito colateral disso, e vale tratar: se o app ficar desligado por dias, ao ligar dispara uma enxurrada de avisos vencidos. Uma regra simples resolve — ignorar avisos atrasados além de um limite (digamos, 24 horas), marcando-os como notificados sem enviar. Um lembrete de três dias atrás não ajuda ninguém.
+
+## 5.4 Idempotência: a decisão que ninguém percebe até doer
+
+A flag `notificado` existe para não avisar duas vezes. Mas há uma pergunta sutil: marcar antes ou depois de enviar?
+
+| | Se marcar antes | Se marcar depois |
+|---|---|---|
+| Envio falha | Notificação perdida para sempre | Tenta de novo no próximo ciclo |
+| Processo morre no meio | Perdida | Pode enviar duplicado |
+
+É o clássico dilema de semântica de entrega: **no máximo uma vez** contra **pelo menos uma vez**. Não existe "exatamente uma vez" sem complexidade considerável.
+
+Decisão do v1: marcar depois do envio bem-sucedido — ou seja, pelo menos uma vez. O raciocínio é do domínio, não da técnica: receber o mesmo lembrete duas vezes é levemente irritante; não receber significa perder um prazo. Num app pessoal, o erro tolerável é o primeiro.
+
+Vale escrever isso no código como comentário, porque é uma decisão consciente que parece descuido para quem lê depois.
+
+## 5.5 Como o Web Push realmente funciona
+
+Esta é a parte que mais confunde, porque a intuição está errada. Seu servidor não envia nada para o celular dela.
+
+O fluxo real:
+
+```
+1. O navegador dela pede permissão para notificar
+2. Autorizado → o navegador gera uma "assinatura":
+   uma URL única + duas chaves de criptografia
+3. O frontend manda essa assinatura para o seu backend, que guarda
+4. Na hora de notificar, o worker criptografa a mensagem
+   e faz um POST para aquela URL
+5. Aquela URL pertence ao serviço de push do navegador
+   (Google, no caso do Chrome — não ao seu servidor)
+6. O serviço de push entrega ao navegador dela
+7. O service worker acorda e mostra a notificação
+```
+
+Ou seja: você entrega a mensagem ao carteiro do Google, e ele leva. Você nunca fala com o celular diretamente — o que é justamente o que permite a notificação chegar com o app fechado.
+
+VAPID é o que identifica seu servidor nesse processo: um par de chaves, gerado uma vez. A pública vai para o frontend (usada ao criar a assinatura); a privada assina os envios do worker. É o que impede qualquer um de enviar notificações em nome do seu app.
+
+No Python, `pywebpush` cobre a parte de criptografia e envio. Não é preciso conta no Firebase — Web Push com VAPID é padrão aberto.
+
+## 5.6 A nova entidade: assinatura
+
+```sql
+assinatura_push
+├── id
+├── usuario_id      → usuario
+├── endpoint        -- a URL única do serviço de push
+├── chave_p256dh    -- criptografia
+├── chave_auth      -- criptografia
+└── criado_em
+```
+
+Dois pontos que não são óbvios:
+
+Um usuário tem várias assinaturas. Uma por navegador/dispositivo — celular e notebook são assinaturas diferentes. Notificar significa enviar para todas.
+
+Assinaturas morrem. Quando ela limpa dados do navegador, reinstala, ou o navegador decide renovar, a assinatura antiga vira lixo. O serviço de push responde 404 ou 410 nesses casos, e a reação correta é apagar a assinatura do banco. Sem essa limpeza, você acumula endpoints mortos e tenta enviar para eles para sempre.
+
+## 5.7 O service worker
+
+É um script JavaScript que roda fora da página, no navegador, e continua vivo depois que a aba fecha. É ele que recebe o push e mostra a notificação — sem ele, Web Push não existe.
+
+Duas responsabilidades no v1:
+
+Receber o evento push e chamar a exibição da notificação com título e texto
+
+Tratar o clique — abrir o app já no cartão certo, não na tela inicial. É um detalhe pequeno e é o que faz a notificação parecer útil em vez de decorativa
+
+Ele mora em `frontend/src/sw.ts`, e junto com o `manifest.json` é o que torna o app instalável na tela inicial dela.
+
+## 5.8 A notificação dentro do app
+
+Ela pediu as duas: no celular e dentro do app. A segunda é bem mais simples — e reaproveita a infraestrutura da próxima etapa.
+
+Quando o worker notifica um cartão, ele também emite um evento no canal em tempo real daquele usuário (Etapa 6). Se ela estiver com o app aberto, o aviso aparece ali na hora, sem recarregar.
+
+Um detalhe de experiência: se o app estiver aberto, ela pode receber o push do sistema e o aviso na tela — redundante. Dá para detectar presença e suprimir um dos dois, mas isso adiciona coordenação. Para o v1, mandar os dois é aceitável, e vale observar no uso real se incomoda antes de complicar.
+
+## 5.9 O que pode dar errado
+
+| Situação | O que acontece | Como tratar |
+|---|---|---|
+| Ela nega a permissão | Não há assinatura | O app degrada para aviso in-app apenas — e deve deixar claro na interface |
+| Serviço de push fora do ar | Envio falha | A flag não é marcada; o próximo ciclo tenta de novo |
+| Assinatura expirada (404/410) | Envio recusado | Apagar a assinatura do banco |
+| Worker fora do ar por horas | Avisos acumulam | O `<= now()` recupera; o limite de atraso evita a enxurrada |
+| Cartão arquivado após agendado | Aviso não faz mais sentido | A consulta já filtra `arquivado = false` |
+
+## 5.10 Como testar
+
+Aqui a testabilidade muda de natureza pela primeira vez neste projeto: o envio depende de um serviço externo. A resposta é isolar a função de envio atrás de uma interface e substituí-la por um dublê nos testes — você testa a lógica, não a rede.
+
+O que dá para testar de verdade:
+
+- O worker seleciona cartões com `notificar_em` vencido e `notificado = false`
+- Ignora arquivados, sem prazo, e já notificados
+- Após envio bem-sucedido, `notificado` vira `true`
+- Após envio com falha, `notificado` permanece `false` — o teste que prova a decisão da 5.4
+- Um cartão com várias assinaturas envia para todas
+- Assinatura que responde 410 é removida do banco
+- Avisos atrasados além do limite são marcados sem enviar
+- Rodar o worker duas vezes seguidas não envia duplicado
+
+O último é o teste de assinatura da etapa. Ele é o que prova a idempotência — e é fácil de escrever, porque basta chamar o laço duas vezes e contar os envios.
+
+## 5.11 Glossário desta etapa
+
+| Termo | O que é |
+|---|---|
+| **Worker** | Processo separado da API, que executa trabalho por tempo, não por requisição |
+| **Idempotência** | Propriedade de uma operação que, repetida, não muda o resultado |
+| **Pelo menos uma vez** | Semântica que tolera duplicata para nunca perder — a escolha do v1 |
+| **Web Push** | Padrão que permite ao servidor enviar notificação ao navegador com o app fechado |
+| **Assinatura** (*subscription*) | Endpoint + chaves que o navegador gera e o backend guarda |
+| **Serviço de push** | Intermediário do navegador (ex.: Google) que entrega a mensagem ao dispositivo |
+| **VAPID** | Par de chaves que identifica seu servidor perante o serviço de push |
+| **Service worker** | Script que roda fora da página e sobrevive ao fechamento da aba |
+
+## 5.12 Notas soltas desta etapa
+
+A intuição sobre Web Push está errada, e vale desfazer (5.5): seu servidor não envia nada para o celular dela. Você entrega a mensagem criptografada ao serviço de push do navegador (o Google, no caso do Chrome), e ele leva. É justamente isso que faz a notificação chegar com o app fechado. E não precisa de conta no Firebase — Web Push com VAPID é padrão aberto.
+
+A decisão de idempotência (5.4) é uma escolha de domínio, não de técnica. Marcar `notificado` antes de enviar arrisca perder o aviso; marcar depois arrisca duplicar. Escolhi pelo menos uma vez porque receber o lembrete duas vezes irrita um pouco, mas não receber significa perder um prazo. Num app pessoal, o erro tolerável é claro. Vale comentar isso no código, porque parece descuido para quem lê depois.
+
+O `<= now()` em vez de uma janela de tempo (5.3) é o que torna o worker resistente a queda: se ele ficar fora do ar três horas, ao voltar encontra tudo que ficou para trás. Uma janela perderia esses avisos em silêncio. O efeito colateral — enxurrada de avisos antigos se o app ficar dias fora — se resolve com um limite de atraso.
+
+Assinaturas morrem, e limpar é obrigatório (5.6). Quando ela limpar dados do navegador ou reinstalar, a assinatura vira lixo e o serviço de push responde 410. A reação correta é apagar do banco — senão você acumula endpoints mortos e tenta enviar para eles indefinidamente.
+
+E uma consequência que vem de duas etapas atrás: a consulta do worker é simples porque a Etapa 4 materializou `notificar_em`. Sem aquela decisão, essa etapa começaria com uma conta entre colunas e um índice de expressão. Decisões de modelagem pagam ou cobram mais tarde — de novo.
+
+O teste de assinatura desta etapa é o mais fácil de escrever e o mais valioso: rodar o laço duas vezes seguidas e contar os envios. Se der dois, a idempotência está quebrada.
+
+---
+
 ## Próxima etapa
 
-**Etapa 5 — Notificações:** o worker que roda sozinho — a primeira peça de arquitetura deste projeto que não é só a API respondendo requisições, e o primeiro problema realmente imprevisível da série.
+**Etapa 6 — Tempo real:** WebSocket e atualização otimista — a peça que faz o app parecer vivo, e que a Etapa 3 (posições absolutas, não relativas) deixou pronta para ser fácil.

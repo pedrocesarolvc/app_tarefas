@@ -17,6 +17,11 @@ email-validator==2.3.0
 bcrypt==5.0.0
 itsdangerous==2.2.0
 
+# --- Notificações via Web Push (Etapa 5.5) ---
+# Usado só por backend/worker/ -- a API nunca importa pywebpush
+# diretamente, apenas guarda as assinaturas que ele consome.
+pywebpush==2.4.0
+
 # --- Testes ---
 pytest==9.1.1
 httpx==0.28.1

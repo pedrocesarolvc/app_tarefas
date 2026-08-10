@@ -1,8 +1,8 @@
-# Orquestra os dois serviços que já existem nesta etapa do projeto: o
-# banco de dados e a API. O frontend (Etapa 1.5, React/Vite) ainda não
-# entra aqui -- ele hoje é só ferramental (ver frontend/), sem uma imagem
-# de produção que faça sentido empacotar; isso é conteúdo da Etapa 7
-# ("Entrega — API, PWA, testes e Docker").
+# Orquestra os três serviços que já existem nesta etapa do projeto: o
+# banco de dados, a API e o worker de notificação (Etapa 5.2). O frontend
+# (Etapa 1.5, React/Vite) ainda não entra aqui -- ele hoje é só ferramental
+# (ver frontend/), sem uma imagem de produção que faça sentido empacotar;
+# isso é conteúdo da Etapa 7 ("Entrega — API, PWA, testes e Docker").
 services:
   banco:
     image: postgres:16-alpine
@@ -45,6 +45,29 @@ services:
         # antes do banco estar pronto para aceitar conexões, na primeira
         # subida do ambiente.
         condition: service_healthy
+
+  worker:
+    # Mesma imagem da API (mesmo Dockerfile, mesmo requirements.txt) --
+    # API e worker compartilham modelos e dependências (Etapa 5.2). O que
+    # os diferencia é só o `command` abaixo, que troca o servidor HTTP
+    # pelo laço "acorda, consulta, envia, dorme" de backend/worker/.
+    build: ./backend
+    command: ["python", "-m", "worker"]
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql+psycopg2://kanban:kanban@banco:5432/kanban
+      CHAVE_SECRETA: troque-esta-chave-antes-de-qualquer-deploy
+      # Sem estas três, o worker sobe e roda normalmente -- só o envio de
+      # push de verdade fica desativado (ver backend/.env.example).
+      VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
+      VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
+      VAPID_SUBJECT: ${VAPID_SUBJECT:-mailto:contato@example.com}
+    depends_on:
+      banco:
+        condition: service_healthy
+    # Sem `ports`: o worker não escuta nada -- é a diferença defendida na
+    # Etapa 5.2, "processo que executa trabalho por tempo, não por
+    # requisição". Não há requisição nenhuma para ele responder.
 
 volumes:
   dados_do_banco:

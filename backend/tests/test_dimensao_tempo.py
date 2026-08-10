@@ -18,16 +18,6 @@ from fastapi.testclient import TestClient
 from tests.test_modelo_kanban import registrar_e_logar
 
 
-def _sem_fuso(momento: datetime) -> datetime:
-    """SQLite (usado nestes testes -- ver tests/conftest.py) não preserva
-    fuso horário como o PostgreSQL de verdade faria: um DateTime(timezone=
-    True) volta do banco sem tzinfo, mesmo representando o mesmo instante
-    absoluto. Normaliza os dois lados da comparação para "sem fuso" antes
-    de comparar -- é uma particularidade do banco de teste, não do
-    comportamento da API."""
-    return momento.replace(tzinfo=None)
-
-
 def test_criar_cartao_sem_prazo_e_valido_e_notificar_em_fica_nulo(cliente: TestClient):
     """Etapa 4.8, item 1. A maioria dos cartões não terá prazo (Etapa
     4.6) — isso precisa continuar funcionando exatamente como antes da
@@ -58,7 +48,7 @@ def test_definir_prazo_e_aviso_previo_calcula_notificar_em(cliente: TestClient):
         json={"titulo": "Pagar boleto", "prazo": prazo.isoformat(), "aviso_previo": 3600},
     ).json()
 
-    assert _sem_fuso(datetime.fromisoformat(cartao["notificar_em"])) == _sem_fuso(prazo - timedelta(hours=1))
+    assert datetime.fromisoformat(cartao["notificar_em"]) == prazo - timedelta(hours=1)
 
 
 def test_alterar_prazo_recalcula_notificar_em_e_reseta_notificado(cliente: TestClient, sessao_bruta):
@@ -79,9 +69,10 @@ def test_alterar_prazo_recalcula_notificar_em_e_reseta_notificado(cliente: TestC
         json={"titulo": "Entregar relatório", "prazo": prazo_original.isoformat(), "aviso_previo": 3600},
     ).json()
 
-    # Simula o worker (Etapa 5, ainda não escrita) já tendo notificado --
-    # a única forma de chegar nesse estado hoje é manipulando o banco
-    # direto, já que nenhuma rota grava `notificado=True` ainda.
+    # Simula o worker (Etapa 5, ver backend/worker/) já tendo notificado --
+    # nenhuma rota da API grava `notificado=True` diretamente (só o
+    # worker faz isso, depois de um envio bem-sucedido), então o teste
+    # manipula o banco direto para chegar nesse estado.
     cartao_no_banco = sessao_bruta.get(Cartao, cartao["id"])
     cartao_no_banco.notificado = True
     sessao_bruta.commit()
@@ -95,9 +86,7 @@ def test_alterar_prazo_recalcula_notificar_em_e_reseta_notificado(cliente: TestC
     cartao_atualizado = resposta.json()
 
     assert cartao_atualizado["notificado"] is False
-    assert _sem_fuso(datetime.fromisoformat(cartao_atualizado["notificar_em"])) == _sem_fuso(
-        novo_prazo - timedelta(hours=1)
-    )
+    assert datetime.fromisoformat(cartao_atualizado["notificar_em"]) == novo_prazo - timedelta(hours=1)
 
 
 def test_calendario_filtra_periodo_atravessa_quadros_e_ignora_arquivados(cliente: TestClient):

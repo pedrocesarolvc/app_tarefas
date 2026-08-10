@@ -2,6 +2,7 @@
 `from app.schemas import CartaoLeitura` em vez de
 `from app.schemas.cartao import CartaoLeitura`)."""
 
+from app.schemas.assinatura_push import AssinaturaPushCriar, AssinaturaPushLeitura
 from app.schemas.cartao import CartaoAtualizar, CartaoCriar, CartaoLeitura, CartaoMover
 from app.schemas.lista import ListaAtualizar, ListaCriar, ListaLeitura, ListaMover
 from app.schemas.quadro import QuadroAtualizar, QuadroCriar, QuadroLeitura
@@ -22,4 +23,6 @@ __all__ = [
     "CartaoAtualizar",
     "CartaoMover",
     "CartaoLeitura",
+    "AssinaturaPushCriar",
+    "AssinaturaPushLeitura",
 ]

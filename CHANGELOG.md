@@ -6,7 +6,27 @@ Cada entrada referencia a seção da documentação (`docs/documentacao.md`) que
 
 ## [Não lançado]
 
-Nada pendente no momento. Próximo passo natural: escrever a Etapa 5 (o worker de notificação).
+Nada pendente no momento. Próximo passo natural: escrever a Etapa 6 (tempo real — WebSocket e atualização otimista).
+
+## [0.4.0] - 2026-08-10
+
+Implementa a Etapa 5 (notificações): o worker separado da API, a entidade de assinatura de Web Push, e o laço idempotente que dispara os avisos.
+
+### Adicionado
+
+- `AssinaturaPush` (`backend/app/modelos/assinatura_push.py`): `usuario_id`, `endpoint` (único), `chave_p256dh`, `chave_auth` — Etapa 5.6. `Usuario.assinaturas_push` com o mesmo cascade de `Usuario.quadros`.
+- Rotas `backend/app/rotas/assinaturas_push.py`: `GET /assinaturas-push/chave-publica` (a chave pública VAPID, sem exigir login — não é secreta), `POST /assinaturas-push` (registra; reatribui o endpoint ao usuário atual se ele já existir), `GET /assinaturas-push` e `DELETE /assinaturas-push/{id}` (com a mesma fronteira de posse 404 do resto da API).
+- `backend/worker/` (processo novo, separado da API — Etapa 5.2): `push.py` isola `pywebpush`/VAPID atrás de `enviar_notificacao` e `AssinaturaExpiradaError`; `agendador.py` tem `executar_ciclo`, a função testável que seleciona cartões pendentes, envia para todas as assinaturas do usuário, marca `notificado` só depois do envio bem-sucedido (Etapa 5.4: "pelo menos uma vez"), ignora avisos atrasados há mais de 24h (Etapa 5.3), e apaga assinaturas que respondem 404/410; `__main__.py` é o laço "acorda, consulta, envia, dorme" (`python -m worker`, 60s de intervalo).
+- Chaves `vapid_public_key`/`vapid_private_key`/`vapid_subject` em `app/config.py`, sem valor padrão para as duas primeiras — sem elas o worker roda normalmente, só o envio de verdade fica desativado.
+- Serviço `worker` no `docker-compose.yml`: mesma imagem da API, `command` diferente, sem `ports` (não responde requisição nenhuma — Etapa 5.2).
+- `backend/tests/test_worker.py` (7 testes, cobrindo o checklist 5.10 completo, com um dublê `EnviadorFalso` no lugar de `pywebpush`) e `backend/tests/test_assinaturas_push.py` (2 testes do contrato da API).
+- `TZDateTime` (`app/database.py`): um `TypeDecorator` sobre `DateTime(timezone=True)` que reattacha `tzinfo=UTC` quando ausente, na gravação e na leitura. Motivo: o SQLite dos testes devolve datetimes sem fuso mesmo para colunas gravadas como aware, e a subtração `agora - cartao.notificar_em` do worker (Etapa 5.3) estourava `TypeError` contra o banco de teste — o PostgreSQL de produção não tem esse problema (é aware nos dois lados), mas o tipo precisava existir para os testes exercitarem o código de verdade. Todos os `DateTime(timezone=True)` dos cinco modelos foram trocados por ele; como efeito colateral, o workaround manual que os testes da Etapa 4 tinham para essa mesma inconsistência (`_sem_fuso`) foi removido — não é mais necessário.
+
+### Decisões registradas nesta etapa (não estão na documentação ainda)
+
+- Usuário sem nenhuma assinatura: `executar_ciclo` marca o cartão como `notificado` mesmo sem enviar nada (Etapa 5.9: "degrada para aviso in-app apenas"). Não há por que tentar de novo indefinidamente por uma assinatura que pode nunca chegar a existir.
+- Cartão com várias assinaturas: `notificado` vira `true` se PELO MENOS UMA tiver sucesso — não é preciso que todos os dispositivos recebam para o cartão ser considerado notificado. A documentação da Etapa 5 não cobre esse caso de parcial sucesso explicitamente; essa foi a leitura mais consistente com "pelo menos uma vez" (5.4) aplicada por usuário, não por dispositivo.
+- `POST /assinaturas-push` reatribui (upsert) em vez de rejeitar um `endpoint` já existente — cobre o caso real de duas contas no mesmo navegador sem cancelar a assinatura anterior.
 
 ## [0.3.0] - 2026-08-10
 

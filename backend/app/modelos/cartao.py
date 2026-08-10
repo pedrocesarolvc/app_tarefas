@@ -6,20 +6,20 @@ Carrega os quatro campos que fazem deste um kanban "com tempo", em vez de
 um kanban comum (Etapa 4.2): `prazo` (quando vence), `aviso_previo`
 (quanto tempo antes avisar), e mais dois que a Etapa 4.3 acrescenta --
 `notificar_em` (o instante do disparo, já calculado) e `notificado` (a
-flag de controle). A lógica de disparo em si -- o worker que lê
-`notificar_em` -- só chega na Etapa 5; aqui os quatro campos já existem
-com o significado e a regra de recálculo corretos (Etapa 4.3, ver
-app/servicos/prazos.py), só falta alguém consumi-los periodicamente.
+flag de controle). O worker que lê `notificar_em` e escreve `notificado`
+é a Etapa 5 (backend/worker/) -- este modelo só define o significado e a
+regra de recálculo (Etapa 4.3, ver app/servicos/prazos.py); quem consome
+é sempre um processo separado.
 """
 
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Interval, Numeric, String, Text
+from sqlalchemy import Boolean, ForeignKey, Interval, Numeric, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.database import Base
+from app.database import Base, TZDateTime
 
 if TYPE_CHECKING:
     from app.modelos.lista import Lista
@@ -60,7 +60,7 @@ class Cartao(Base):
     # única usuária isso evita bugs de horário de verão. É opcional: a
     # Etapa 2.8 exige explicitamente que "um cartão sem prazo é válido", já
     # que a maioria dos cartões não vai ter data nenhuma.
-    prazo: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    prazo: Mapped[datetime | None] = mapped_column(TZDateTime, nullable=True)
 
     # `aviso_previo`: quanto tempo antes do prazo a notificação deve
     # disparar (Etapa 4.2). `Interval` -- não um inteiro de minutos -- vira
@@ -80,7 +80,7 @@ class Cartao(Base):
     # nome não deixa óbvia: toda vez que `prazo` ou `aviso_previo` mudam,
     # este campo precisa ser recalculado -- nunca escrito à mão numa rota,
     # sempre via app/servicos/prazos.py.
-    notificar_em: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    notificar_em: Mapped[datetime | None] = mapped_column(TZDateTime, nullable=True)
 
     # `notificado`: já foi disparada a notificação deste cartão? Por que
     # ela mora aqui, e não só na cabeça do worker, é a outra metade da
@@ -98,7 +98,7 @@ class Cartao(Base):
     arquivado: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
 
     criado_em: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+        TZDateTime, default=lambda: datetime.now(timezone.utc)
     )
 
     lista: Mapped["Lista"] = relationship(back_populates="cartoes")
