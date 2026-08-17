@@ -6,7 +6,20 @@ Cada entrada referencia a seção da documentação (`docs/documentacao.md`) que
 
 ## [Não lançado]
 
-O v1 está implementado e documentado para implantação real (frontend + backend em domínios separados). O que resta é o que só um uso real revela (Etapa 7.7): o que ela usa, o que ela ignora, o que ela pede — e a implantação em si, que depende de ações fora deste repositório (contas na Vercel/Hostinger, DNS).
+O v1 está implementado. A documentação pública deste repositório cobre como rodar o projeto (README) — os passos de implantação em produção (qual provedor, domínio, servidor) ficaram de fora de propósito: são específicos de quem está publicando, não de quem está lendo o código.
+
+## [0.7.1] - 2026-08-17
+
+Remove `docs/implantacao.md` e `docker-compose.prod.yml`, adicionados na versão anterior: um passo a passo de implantação nomeando provedores e domínios específicos (Vercel, depois Render, mais Hostinger) não é algo que faça sentido manter num repositório público — quem baixa este código para testar quer saber "como eu rodo isto", que é o que o README já cobre, não como o autor publica a própria instância dele.
+
+### Removido
+
+- `docs/implantacao.md` e `docker-compose.prod.yml` (o override de portas que só fazia sentido junto do guia).
+- A seção "Implantação (produção)" do README, que apontava para o guia removido.
+
+### Mantido (não é específico de nenhum guia)
+
+- `COOKIE_ENTRE_SITES` (`app/config.py`) e `VITE_API_URL` (`frontend/src/api/cliente.ts`, `frontend/src/api/tempoReal.ts`): continuam existindo como pontos de configuração genéricos — quem precisar publicar frontend e API em domínios diferentes, com qualquer provedor, ainda tem como fazer isso sem mudar código, só sem um roteiro específico documentado aqui. Os comentários que apontavam para o guia removido foram reescritos para não referenciar um arquivo inexistente.
 
 ## [0.7.0] - 2026-08-17
 

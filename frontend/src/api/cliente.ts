@@ -10,10 +10,10 @@
  *   vite.config.ts), que também remove o prefixo `/api` antes de repassar
  *   -- por isso as rotas deste arquivo nunca incluem `/api` nelas mesmas.
  * - `VITE_API_URL` DEFINIDA (produção -- frontend e API em domínios
- *   diferentes, ex.: Vercel + Hostinger, ver docs/implantacao.md): as
- *   chamadas vão direto para essa URL, sem proxy nenhum no meio -- por
- *   isso, aqui também, sem prefixo `/api` (a API nunca teve essa rota;
- *   `/api` só existia porque o proxy de desenvolvimento removia).
+ *   diferentes): as chamadas vão direto para essa URL, sem proxy nenhum
+ *   no meio -- por isso, aqui também, sem prefixo `/api` (a API nunca
+ *   teve essa rota; `/api` só existia porque o proxy de desenvolvimento
+ *   removia).
  *
  * `credentials: "include"` é necessário nos dois modos assim que a API
  * está numa origem diferente da página: sem isso, o navegador não manda

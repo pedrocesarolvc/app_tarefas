@@ -19,9 +19,8 @@ const ATRASO_MAXIMO_MS = 30_000;
  * `VITE_API_URL` (desenvolvimento), conecta na própria origem da página,
  * que o proxy `/ws` do Vite encaminha para o backend local (ver
  * vite.config.ts). Com `VITE_API_URL` definida (produção, API numa
- * origem separada -- ver docs/implantacao.md), conecta direto nela,
- * trocando o protocolo HTTP pelo WebSocket equivalente (http→ws,
- * https→wss). */
+ * origem separada), conecta direto nela, trocando o protocolo HTTP pelo
+ * WebSocket equivalente (http→ws, https→wss). */
 function montarUrlDoCanal(quadroId: number): string {
   const urlDaApi = import.meta.env.VITE_API_URL;
   if (urlDaApi) {

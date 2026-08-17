@@ -182,7 +182,3 @@ npm run dev
 Sobe em `http://localhost:5173`. As chamadas para `/api/*` (e o WebSocket em `/ws/*`) são redirecionadas para o backend em `http://localhost:8000` pelo proxy configurado em `frontend/vite.config.ts` — suba o backend também (e o Postgres, ver acima) antes de abrir a página. Crie uma conta na própria tela de login (não há usuária de teste pré-cadastrada); o primeiro quadro também se cria pela interface, se você ainda não tiver um.
 
 Notificação push de verdade **não** funciona em `http://localhost` fora do Chrome/Edge de desenvolvimento — Web Push e service worker exigem HTTPS (Etapa 7.3). Testar no celular dela exige um túnel (ngrok, Cloudflare Tunnel) apontando para o frontend, com `ORIGENS_PERMITIDAS_CORS` no backend incluindo a URL do túnel. O resto do app (quadro, arrastar, calendário, avisos in-app pelo WebSocket) funciona normalmente em `localhost`, sem HTTPS nenhum.
-
-## Implantação (produção)
-
-Publicar de verdade — frontend na Vercel, backend (API + worker + Postgres) num servidor próprio — é um cenário diferente do desenvolvimento local acima: exige `VITE_API_URL`, CORS e cookie entre domínios configurados. Passo a passo completo em [`docs/implantacao.md`](docs/implantacao.md).

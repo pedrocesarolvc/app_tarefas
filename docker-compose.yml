@@ -46,8 +46,9 @@ services:
       # produção quando publicar o frontend em algum lugar.
       ORIGENS_PERMITIDAS_CORS: ${ORIGENS_PERMITIDAS_CORS:-http://localhost:5173}
       # true só na implantação com frontend e API em domínios diferentes
-      # (ver docs/implantacao.md, app/config.py) -- ausente/false aqui
-      # significa "mesma origem", o padrão seguro para rodar isto local.
+      # (ver o comentário de `cookie_entre_sites` em app/config.py) --
+      # ausente/false aqui significa "mesma origem", o padrão seguro para
+      # rodar isto local.
       COOKIE_ENTRE_SITES: ${COOKIE_ENTRE_SITES:-false}
       # A API também serve a chave pública em GET /assinaturas-push/chave-publica
       # (o frontend a usa para registrar push no navegador) -- por isso
