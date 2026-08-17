@@ -93,6 +93,24 @@ class Configuracoes(BaseSettings):
     # isso a lista precisa ser explícita, nunca um curinga.
     origens_permitidas_cors: str = "http://localhost:5173"
 
+    # --- Cookie entre sites (implantação com frontend e API em domínios
+    # diferentes, ex.: frontend na Vercel + API na Hostinger) ---
+    # O cookie de sessão (app/rotas/auth.py) é gravado com `SameSite=Lax`
+    # por padrão -- suficiente quando frontend e API são a mesma origem
+    # (dev, via proxy do Vite). Mas `SameSite=Lax` NÃO é enviado em
+    # requisições `fetch`/XHR entre sites diferentes, só em navegação de
+    # topo -- então, com a API numa origem separada, o cookie simplesmente
+    # não viajaria nas chamadas da API, e o login pareceria não "pegar"
+    # (ela loga, mas a próxima chamada já vem como não autenticada).
+    #
+    # `cookie_entre_sites=True` troca para `SameSite=None`, que exige
+    # `Secure=True` (só é aceito pelo navegador sobre HTTPS) -- por isso
+    # esta opção só faz sentido depois que a API já está atrás de HTTPS de
+    # verdade (ver docs/implantacao.md). Fica desligada por padrão porque
+    # ligá-la sem HTTPS faria o cookie ser recusado silenciosamente pelo
+    # navegador, um jeito pior de quebrar do que o Lax padrão.
+    cookie_entre_sites: bool = False
+
     # model_config diz ao pydantic-settings para também procurar um arquivo
     # `.env` na raiz do backend, além das variáveis de ambiente reais do
     # sistema operacional. Isso facilita o desenvolvimento local: em vez de

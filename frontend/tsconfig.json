@@ -19,6 +19,11 @@
     "noEmit": true,
     "jsx": "react-jsx",
 
+    // Tipagem de `import.meta.env` (VITE_API_URL em api/cliente.ts e
+    // api/tempoReal.ts) -- sem isso o TypeScript não conhece as variáveis
+    // de ambiente que o próprio Vite injeta.
+    "types": ["vite/client"],
+
     // Modo estrito do TypeScript: pega em tempo de compilação erros que
     // só apareceriam em produção sem isso (por exemplo, esquecer de
     // tratar um valor que pode ser `undefined`).

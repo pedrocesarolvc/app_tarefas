@@ -3,12 +3,27 @@
  * externa -- `fetch` já é suficiente para o que este app precisa, e
  * evita mais uma dependência só para isso.
  *
- * Todas as chamadas passam por `/api/...`, reescrito para o backend pelo
- * proxy do Vite (ver vite.config.ts) -- o código aqui nunca precisa saber
- * a URL real da API, nem em desenvolvimento nem quando isso mudar depois.
+ * Dois modos, escolhidos por uma única variável de ambiente do Vite:
+ *
+ * - `VITE_API_URL` AUSENTE (desenvolvimento local): as chamadas vão para
+ *   `/api/...`, reescrito para o backend pelo proxy do Vite (ver
+ *   vite.config.ts), que também remove o prefixo `/api` antes de repassar
+ *   -- por isso as rotas deste arquivo nunca incluem `/api` nelas mesmas.
+ * - `VITE_API_URL` DEFINIDA (produção -- frontend e API em domínios
+ *   diferentes, ex.: Vercel + Hostinger, ver docs/implantacao.md): as
+ *   chamadas vão direto para essa URL, sem proxy nenhum no meio -- por
+ *   isso, aqui também, sem prefixo `/api` (a API nunca teve essa rota;
+ *   `/api` só existia porque o proxy de desenvolvimento removia).
+ *
+ * `credentials: "include"` é necessário nos dois modos assim que a API
+ * está numa origem diferente da página: sem isso, o navegador não manda
+ * (nem aceita) o cookie de sessão em requisições entre origens, mesmo com
+ * CORS liberado (ver app/config.py, `cookie_entre_sites`, no backend).
  */
 
 import type { Cartao, Lista, Quadro, Usuario } from "./tipos";
+
+const URL_BASE_DA_API = import.meta.env.VITE_API_URL ?? "/api";
 
 export class ErroDeApi extends Error {
   constructor(
@@ -20,8 +35,9 @@ export class ErroDeApi extends Error {
 }
 
 async function requisicao<T>(caminho: string, opcoes: RequestInit = {}): Promise<T> {
-  const resposta = await fetch(`/api${caminho}`, {
+  const resposta = await fetch(`${URL_BASE_DA_API}${caminho}`, {
     ...opcoes,
+    credentials: "include",
     headers: { "Content-Type": "application/json", ...opcoes.headers },
   });
 

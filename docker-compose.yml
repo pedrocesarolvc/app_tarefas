@@ -45,6 +45,15 @@ services:
       # localmente com `npm run dev`; sobrescreva com a URL real de
       # produção quando publicar o frontend em algum lugar.
       ORIGENS_PERMITIDAS_CORS: ${ORIGENS_PERMITIDAS_CORS:-http://localhost:5173}
+      # true só na implantação com frontend e API em domínios diferentes
+      # (ver docs/implantacao.md, app/config.py) -- ausente/false aqui
+      # significa "mesma origem", o padrão seguro para rodar isto local.
+      COOKIE_ENTRE_SITES: ${COOKIE_ENTRE_SITES:-false}
+      # A API também serve a chave pública em GET /assinaturas-push/chave-publica
+      # (o frontend a usa para registrar push no navegador) -- por isso
+      # precisa da mesma variável que o serviço `worker` recebe abaixo,
+      # não só a privada.
+      VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
     ports:
       - "8000:8000"
     depends_on:

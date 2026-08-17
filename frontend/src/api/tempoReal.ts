@@ -15,6 +15,24 @@ export interface EventoTempoReal {
 const ATRASO_INICIAL_MS = 1000;
 const ATRASO_MAXIMO_MS = 30_000;
 
+/** Mesmo raciocínio de `URL_BASE_DA_API` em api/cliente.ts: sem
+ * `VITE_API_URL` (desenvolvimento), conecta na própria origem da página,
+ * que o proxy `/ws` do Vite encaminha para o backend local (ver
+ * vite.config.ts). Com `VITE_API_URL` definida (produção, API numa
+ * origem separada -- ver docs/implantacao.md), conecta direto nela,
+ * trocando o protocolo HTTP pelo WebSocket equivalente (http→ws,
+ * https→wss). */
+function montarUrlDoCanal(quadroId: number): string {
+  const urlDaApi = import.meta.env.VITE_API_URL;
+  if (urlDaApi) {
+    const url = new URL(urlDaApi);
+    const protocolo = url.protocol === "https:" ? "wss:" : "ws:";
+    return `${protocolo}//${url.host}/ws/quadros/${quadroId}`;
+  }
+  const protocolo = window.location.protocol === "https:" ? "wss:" : "ws:";
+  return `${protocolo}//${window.location.host}/ws/quadros/${quadroId}`;
+}
+
 /**
  * Conecta ao canal em tempo real de um quadro (Etapa 6.4: `GET
  * /ws/quadros/{id}`) e devolve o id de conexão que o servidor atribui ao
@@ -50,6 +68,10 @@ export function useCanalDoQuadro(
 
   useEffect(() => {
     if (quadroId === null) return;
+    // TypeScript não propaga o `=== null` acima para dentro de `conectar`
+    // (uma closure não tem como o compilador garantir que `quadroId`, um
+    // parâmetro capturado, não mudou até lá) -- uma const local resolve.
+    const idDoQuadro = quadroId;
 
     let socket: WebSocket | null = null;
     let idDoTimeout: ReturnType<typeof setTimeout> | null = null;
@@ -57,8 +79,7 @@ export function useCanalDoQuadro(
     let desmontado = false;
 
     function conectar() {
-      const protocolo = window.location.protocol === "https:" ? "wss:" : "ws:";
-      socket = new WebSocket(`${protocolo}//${window.location.host}/ws/quadros/${quadroId}`);
+      socket = new WebSocket(montarUrlDoCanal(idDoQuadro));
 
       socket.onopen = () => {
         if (tentativas > 0) aoReconectarRef.current();

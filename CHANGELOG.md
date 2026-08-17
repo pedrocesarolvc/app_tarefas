@@ -6,7 +6,32 @@ Cada entrada referencia a seção da documentação (`docs/documentacao.md`) que
 
 ## [Não lançado]
 
-O v1 descrito pela documentação (Etapas 1-7) está implementado. O que resta é infraestrutura pura (HTTPS/túnel/domínio para push de verdade em produção — Etapa 7.3) e o que só um uso real revela (Etapa 7.7): o que ela usa, o que ela ignora, o que ela pede.
+O v1 está implementado e documentado para implantação real (frontend + backend em domínios separados). O que resta é o que só um uso real revela (Etapa 7.7): o que ela usa, o que ela ignora, o que ela pede — e a implantação em si, que depende de ações fora deste repositório (contas na Vercel/Hostinger, DNS).
+
+## [0.7.0] - 2026-08-17
+
+Prepara o app para implantação real com frontend e backend em domínios diferentes (Vercel + servidor próprio) — a lacuna que a nota "Não lançado" da versão anterior apontava (Etapa 7.3: "HTTPS/túnel/domínio para push de verdade em produção").
+
+### Adicionado
+
+- `docs/implantacao.md`: guia completo de implantação — Vercel para o frontend, VPS da Hostinger (Docker + Caddy) para a API/worker/Postgres, incluindo como diferenciar um plano VPS de hospedagem compartilhada, DNS do subdomínio da API, geração de segredos de produção e uma checklist final de verificação ponta a ponta.
+- `docker-compose.prod.yml`: override de produção que restringe as portas do Postgres e da API a `127.0.0.1` (o `docker-compose.yml` de desenvolvimento as publica em todas as interfaces, correto localmente mas não numa VPS com IP público) — usado junto do arquivo principal via `docker compose -f docker-compose.yml -f docker-compose.prod.yml`.
+- `frontend/.env.example`: documenta `VITE_API_URL`, a variável de build que `api/cliente.ts` e `api/tempoReal.ts` agora leem.
+- `app/config.py`: `cookie_entre_sites` (padrão `false`) — liga `SameSite=None; Secure` no cookie de sessão (`app/rotas/auth.py`) quando frontend e API moram em domínios diferentes; `SameSite=Lax` (o padrão anterior, mantido) não é enviado em chamadas `fetch` entre sites diferentes, só em navegação de topo, então sem isso o login "não pegaria" atrás de domínios separados.
+
+### Alterado
+
+- `frontend/src/api/cliente.ts`: a URL base passou de fixa (`/api`) para `import.meta.env.VITE_API_URL ?? "/api"` — ausente, mantém o comportamento de desenvolvimento via proxy do Vite; definida, chama a API diretamente nesse domínio. Toda chamada ganhou `credentials: "include"`, necessário para o cookie de sessão viajar em requisições entre origens diferentes mesmo com CORS liberado.
+- `frontend/src/api/tempoReal.ts`: a URL do WebSocket segue a mesma lógica — deriva `wss://`/`ws://` de `VITE_API_URL` quando definida, em vez de sempre usar `window.location.host`.
+- `frontend/tsconfig.json`: adicionado `"types": ["vite/client"]`, exigido para o TypeScript reconhecer `import.meta.env.VITE_API_URL` (sem isso, `tsc` falha com "Property 'env' does not exist on type 'ImportMeta'").
+- `docker-compose.yml` (serviço `api`): ganhou as variáveis `COOKIE_ENTRE_SITES` e `VAPID_PUBLIC_KEY`, que já existiam em `backend/.env.example` mas não estavam sendo repassadas ao container — sem `VAPID_PUBLIC_KEY` especificamente, `GET /assinaturas-push/chave-publica` (usada pelo frontend para registrar push no navegador) responderia sempre `null`, mesmo com a chave configurada no `.env`.
+- `README.md`: nova seção "Implantação (produção)" apontando para `docs/implantacao.md`.
+
+### Decisões registradas nesta etapa (não estão na documentação em etapas)
+
+- Caddy, não nginx + Certbot manual, como proxy reverso da API na VPS — para um único servidor, a emissão/renovação automática de certificado Let's Encrypt do Caddy (poucas linhas de config) tem muito menos partes móveis para manter do que configurar nginx e Certbot como processos separados, e ele já repassa o upgrade de conexão do WebSocket sem configuração extra.
+- As portas do Postgres/API em produção são restringidas via um `docker-compose.prod.yml` separado (override), não editando `docker-compose.yml` diretamente — o arquivo principal continua servindo ao desenvolvimento local sem mudança de comportamento; só a combinação explícita dos dois arquivos (documentada no guia) aplica a restrição.
+- O guia documenta explicitamente que `ufw` sozinho não é suficiente para restringir as portas publicadas pelo Docker (ele manipula o `iptables` por conta própria e costuma ignorar regras do `ufw`) — vale registrar porque é uma pegadinha comum, não algo óbvio de quem só conhece firewall de host tradicional.
 
 ## [0.6.0] - 2026-08-17
 

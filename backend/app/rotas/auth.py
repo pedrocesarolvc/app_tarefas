@@ -62,10 +62,13 @@ def login(dados: UsuarioLogin, resposta: Response, sessao: Session = Depends(obt
         # o que reduz o estrago de um eventual XSS (o script malicioso não
         # rouba a sessão só por rodar na página).
         httponly=True,
-        # samesite="lax": o cookie não é enviado em requisições disparadas
-        # por outros sites (ex.: um <form> malicioso em outra página), o
-        # que mitiga CSRF, mas ainda é enviado em navegação normal.
-        samesite="lax",
+        # samesite="lax" (padrão) mitiga CSRF e é suficiente quando
+        # frontend e API são a mesma origem (dev). Com
+        # `cookie_entre_sites=True` (implantação com domínios separados,
+        # ver app/config.py), vira "none" -- e "none" exige `secure=True`,
+        # senão o navegador recusa o cookie inteiro.
+        samesite="none" if configuracoes.cookie_entre_sites else "lax",
+        secure=configuracoes.cookie_entre_sites,
     )
     return usuario
 
