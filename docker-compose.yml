@@ -36,6 +36,10 @@ services:
       # o Postgres do serviço acima.
       DATABASE_URL: postgresql+psycopg2://kanban:kanban@banco:5432/kanban
       CHAVE_SECRETA: troque-esta-chave-antes-de-qualquer-deploy
+      # Precisa ser IGUAL à do serviço `worker` abaixo -- é o segredo
+      # compartilhado que autentica a chamada dele para
+      # POST /interno/eventos-tempo-real (Etapa 6.5).
+      CHAVE_INTERNA: troque-esta-chave-interna-tambem
     ports:
       - "8000:8000"
     depends_on:
@@ -57,6 +61,14 @@ services:
     environment:
       DATABASE_URL: postgresql+psycopg2://kanban:kanban@banco:5432/kanban
       CHAVE_SECRETA: troque-esta-chave-antes-de-qualquer-deploy
+      # Mesmo valor do serviço `api` acima -- ver o comentário lá.
+      CHAVE_INTERNA: troque-esta-chave-interna-tambem
+      # Host "api", não "localhost": mesma lógica de sempre dentro da rede
+      # do compose. Sem isto certo, a ponte da Etapa 6.5 (worker → sala em
+      # tempo real) simplesmente não encontra a API -- mas, sendo
+      # best-effort (ver worker/tempo_real.py), o worker continua
+      # funcionando normalmente mesmo assim, só sem o aviso in-app.
+      URL_API_INTERNA: http://api:8000
       # Sem estas três, o worker sobe e roda normalmente -- só o envio de
       # push de verdade fica desativado (ver backend/.env.example).
       VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
@@ -65,6 +77,11 @@ services:
     depends_on:
       banco:
         condition: service_healthy
+      # Não `condition: service_healthy` (a API não tem healthcheck
+      # definido) -- só ordem de subida. A ponte é best-effort, então não
+      # vale a complexidade de esperar a API responder de verdade.
+      api:
+        condition: service_started
     # Sem `ports`: o worker não escuta nada -- é a diferença defendida na
     # Etapa 5.2, "processo que executa trabalho por tempo, não por
     # requisição". Não há requisição nenhuma para ele responder.

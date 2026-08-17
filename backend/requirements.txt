@@ -22,6 +22,11 @@ itsdangerous==2.2.0
 # diretamente, apenas guarda as assinaturas que ele consome.
 pywebpush==2.4.0
 
+# --- Cliente HTTP ---
+# Usado em produção pelo worker (backend/worker/tempo_real.py, Etapa 6.5,
+# a ponte até a API) e nos testes (TestClient, que depende dele para
+# simular requisições -- inclusive WebSocket, Etapa 6).
+httpx==0.28.1
+
 # --- Testes ---
 pytest==9.1.1
-httpx==0.28.1

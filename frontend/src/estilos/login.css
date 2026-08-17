@@ -1,0 +1,92 @@
+.tela-login {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--cor-fundo);
+}
+
+.tela-login__cartao {
+  width: 320px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  background: var(--cor-fundo-coluna);
+  border: 1px solid var(--cor-borda);
+  border-radius: var(--raio);
+  padding: 28px;
+  box-shadow: var(--sombra-suave);
+}
+
+.tela-login__titulo {
+  font-size: 18px;
+  margin: 0;
+}
+
+.tela-login__subtitulo {
+  margin: -6px 0 6px;
+  color: var(--cor-texto-fraco);
+  font-size: 13px;
+}
+
+.tela-login__campo {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--cor-texto-fraco);
+}
+
+.tela-login__campo input {
+  background: var(--cor-fundo);
+  border: 1px solid var(--cor-borda-forte);
+  border-radius: var(--raio-pequeno);
+  color: var(--cor-texto);
+  padding: 9px 10px;
+  font-size: 14px;
+  font-family: inherit;
+}
+.tela-login__campo input:focus {
+  outline: none;
+  border-color: var(--acento-4);
+}
+
+.tela-login__erro {
+  margin: 0;
+  color: var(--cor-perigo);
+  background: var(--cor-perigo-fundo);
+  border-radius: var(--raio-pequeno);
+  padding: 8px 10px;
+  font-size: 13px;
+}
+
+.tela-login__botao {
+  background: var(--acento-4);
+  color: #14161c;
+  font-weight: 600;
+  border: none;
+  border-radius: var(--raio-pequeno);
+  padding: 10px;
+  font-size: 14px;
+  cursor: pointer;
+  transition: filter 0.15s ease;
+}
+.tela-login__botao:hover {
+  filter: brightness(1.08);
+}
+.tela-login__botao:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.tela-login__alternar {
+  background: transparent;
+  border: none;
+  color: var(--cor-texto-fraco);
+  font-size: 12.5px;
+  cursor: pointer;
+  padding: 2px;
+}
+.tela-login__alternar:hover {
+  color: var(--cor-texto);
+}

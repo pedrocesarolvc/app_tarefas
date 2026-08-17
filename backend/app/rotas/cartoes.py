@@ -5,7 +5,7 @@ Rotas de Cartao (a tarefa), aninhadas sob uma lista
 
 from decimal import Decimal
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, Header, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -13,10 +13,31 @@ from app.auth.dependencias import obter_usuario_atual
 from app.database import obter_sessao
 from app.modelos.cartao import Cartao
 from app.modelos.usuario import Usuario
+from app.realtime.eventos import construir_evento
+from app.realtime.gerenciador import gerenciador_de_salas
 from app.rotas.listas import obter_lista_do_usuario
 from app.schemas.cartao import CartaoAtualizar, CartaoCriar, CartaoLeitura, CartaoMover
 from app.servicos.ordenacao import PosicaoInvalidaError, calcular_posicao
 from app.servicos.prazos import aplicar_edicao_de_cartao, calcular_notificar_em
+
+# Parâmetro de rota compartilhado pelas quatro escritas abaixo: o id de
+# conexão do cliente que originou a mudança (Etapa 6.7), ausente para
+# quem escreve sem WebSocket nenhum (ex.: um teste, ou um cliente sem
+# tempo real). Ver o comentário em construir_evento, app/realtime/eventos.py.
+_ORIGEM_CONEXAO = Header(default=None, alias="X-Origem-Conexao")
+
+
+def _transmitir(quadro_id: int, tipo: str, cartao: Cartao, origem: str | None) -> None:
+    """Publica o evento na sala do quadro depois de uma escrita bem-
+    sucedida (Etapa 6.5). Fica isolado aqui, e não repetido em cada rota,
+    pelo mesmo motivo de app/servicos/ordenacao.py e prazos.py: um só
+    lugar decide como o evento de cartão é montado."""
+    gerenciador_de_salas.transmitir_sync(
+        quadro_id,
+        construir_evento(
+            tipo, CartaoLeitura.model_validate(cartao).model_dump(mode="json"), origem
+        ),
+    )
 
 roteador = APIRouter(prefix="/quadros/{quadro_id}/listas/{lista_id}/cartoes", tags=["cartões"])
 
@@ -55,6 +76,7 @@ def criar_cartao(
     dados: CartaoCriar,
     usuario_atual: Usuario = Depends(obter_usuario_atual),
     sessao: Session = Depends(obter_sessao),
+    origem_conexao: str | None = _ORIGEM_CONEXAO,
 ):
     """Um cartão novo sempre entra no final da lista (Etapa 3: sem campo
     `posicao` no schema -- ver o comentário em CartaoCriar). Mesmo caso de
@@ -76,6 +98,7 @@ def criar_cartao(
     sessao.add(cartao)
     sessao.commit()
     sessao.refresh(cartao)
+    _transmitir(quadro_id, "cartao_criado", cartao, origem_conexao)
     return cartao
 
 
@@ -112,6 +135,7 @@ def atualizar_cartao(
     dados: CartaoAtualizar,
     usuario_atual: Usuario = Depends(obter_usuario_atual),
     sessao: Session = Depends(obter_sessao),
+    origem_conexao: str | None = _ORIGEM_CONEXAO,
 ):
     """Edita conteúdo (título, descrição, prazo, aviso prévio). Não move o
     cartão de lista -- essa é a rota `mover_cartao` abaixo, de propósito
@@ -126,6 +150,7 @@ def atualizar_cartao(
     aplicar_edicao_de_cartao(cartao, dados.model_dump(exclude_unset=True))
     sessao.commit()
     sessao.refresh(cartao)
+    _transmitir(quadro_id, "cartao_atualizado", cartao, origem_conexao)
     return cartao
 
 
@@ -137,6 +162,7 @@ def mover_cartao(
     dados: CartaoMover,
     usuario_atual: Usuario = Depends(obter_usuario_atual),
     sessao: Session = Depends(obter_sessao),
+    origem_conexao: str | None = _ORIGEM_CONEXAO,
 ):
     """A operação central do kanban (Etapa 2.3): mover um cartão é mudar
     `lista_id` -- nada mais. Não há validação de "transição permitida"
@@ -183,6 +209,7 @@ def mover_cartao(
     cartao.posicao = nova_posicao
     sessao.commit()
     sessao.refresh(cartao)
+    _transmitir(quadro_id, "cartao_movido", cartao, origem_conexao)
     return cartao
 
 
@@ -193,6 +220,7 @@ def arquivar_cartao(
     cartao_id: int,
     usuario_atual: Usuario = Depends(obter_usuario_atual),
     sessao: Session = Depends(obter_sessao),
+    origem_conexao: str | None = _ORIGEM_CONEXAO,
 ):
     """"Excluir" um cartão, na Etapa 2.7, é isto: marcar `arquivado=True`,
     nunca um DELETE de verdade. O registro continua no banco, só some das
@@ -201,4 +229,5 @@ def arquivar_cartao(
     cartao.arquivado = True
     sessao.commit()
     sessao.refresh(cartao)
+    _transmitir(quadro_id, "cartao_arquivado", cartao, origem_conexao)
     return cartao

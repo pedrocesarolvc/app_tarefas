@@ -58,6 +58,21 @@ class Configuracoes(BaseSettings):
     # ao contrário das chaves, não é secreto nem impede nada de subir.
     vapid_subject: str = "mailto:contato@example.com"
 
+    # --- Ponte worker → tempo real (Etapa 6.5) ---
+    # As salas de WebSocket vivem na memória do processo da API (Etapa
+    # 6.5) -- e o worker (Etapa 5.2) é, por desenho, um processo à parte.
+    # Ele não enxerga esse dicionário em memória de jeito nenhum; a única
+    # forma de "o worker notificou um cartão" virar um evento na sala do
+    # quadro é o worker chamar de volta a própria API por HTTP (ver
+    # backend/worker/tempo_real.py e a rota interna em
+    # app/rotas/realtime.py). `chave_interna` é um segredo simples
+    # compartilhado entre os dois processos só para essa chamada não
+    # aceitar qualquer requisição de qualquer origem -- reaproveita
+    # `chave_secreta` como valor padrão de desenvolvimento para não exigir
+    # mais uma variável de ambiente só para isso.
+    url_api_interna: str = "http://localhost:8000"
+    chave_interna: str = "chave-de-desenvolvimento-troque-em-producao"
+
     # model_config diz ao pydantic-settings para também procurar um arquivo
     # `.env` na raiz do backend, além das variáveis de ambiente reais do
     # sistema operacional. Isso facilita o desenvolvimento local: em vez de

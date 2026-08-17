@@ -5,7 +5,7 @@ Rotas de Lista (coluna do kanban), aninhadas sob um quadro
 
 from decimal import Decimal
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, Header, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -13,11 +13,29 @@ from app.auth.dependencias import obter_usuario_atual
 from app.database import obter_sessao
 from app.modelos.lista import Lista
 from app.modelos.usuario import Usuario
+from app.realtime.eventos import construir_evento
+from app.realtime.gerenciador import gerenciador_de_salas
 from app.rotas.quadros import obter_quadro_do_usuario
 from app.schemas.lista import ListaAtualizar, ListaCriar, ListaLeitura, ListaMover
 from app.servicos.ordenacao import PosicaoInvalidaError, calcular_posicao
 
 roteador = APIRouter(prefix="/quadros/{quadro_id}/listas", tags=["listas"])
+
+# Mesmo raciocínio de app/rotas/cartoes.py: o id de conexão de quem
+# originou a mudança (Etapa 6.7), repassado no evento transmitido.
+_ORIGEM_CONEXAO = Header(default=None, alias="X-Origem-Conexao")
+
+
+def _transmitir(quadro_id: int, tipo: str, lista: Lista, origem: str | None) -> None:
+    """Publica o evento na sala do quadro depois de uma escrita bem-
+    sucedida (Etapa 6.5) -- ver o equivalente para cartão em
+    app/rotas/cartoes.py."""
+    gerenciador_de_salas.transmitir_sync(
+        quadro_id,
+        construir_evento(
+            tipo, ListaLeitura.model_validate(lista).model_dump(mode="json"), origem
+        ),
+    )
 
 
 def obter_lista_do_usuario(sessao: Session, quadro_id: int, lista_id: int, usuario: Usuario) -> Lista:
@@ -53,6 +71,7 @@ def criar_lista(
     dados: ListaCriar,
     usuario_atual: Usuario = Depends(obter_usuario_atual),
     sessao: Session = Depends(obter_sessao),
+    origem_conexao: str | None = _ORIGEM_CONEXAO,
 ):
     """Uma lista nova sempre entra no final do quadro (Etapa 3: sem campo
     `posicao` no schema -- ver o comentário em ListaCriar). A posição é
@@ -68,6 +87,7 @@ def criar_lista(
     sessao.add(lista)
     sessao.commit()
     sessao.refresh(lista)
+    _transmitir(quadro_id, "lista_criada", lista, origem_conexao)
     return lista
 
 
@@ -103,6 +123,7 @@ def atualizar_lista(
     dados: ListaAtualizar,
     usuario_atual: Usuario = Depends(obter_usuario_atual),
     sessao: Session = Depends(obter_sessao),
+    origem_conexao: str | None = _ORIGEM_CONEXAO,
 ):
     """Cobre a edição de conteúdo: renomear (`nome`). Note que, embora
     `ListaAtualizar` também aceite `arquivado`, arquivar uma lista por este
@@ -118,6 +139,7 @@ def atualizar_lista(
         setattr(lista, campo, valor)
     sessao.commit()
     sessao.refresh(lista)
+    _transmitir(quadro_id, "lista_atualizada", lista, origem_conexao)
     return lista
 
 
@@ -128,6 +150,7 @@ def mover_lista(
     dados: ListaMover,
     usuario_atual: Usuario = Depends(obter_usuario_atual),
     sessao: Session = Depends(obter_sessao),
+    origem_conexao: str | None = _ORIGEM_CONEXAO,
 ):
     """Reordena as colunas do quadro (Etapa 2.2: "listas também precisam
     de ordem"). O cliente manda só os vizinhos onde a lista foi solta
@@ -157,6 +180,7 @@ def mover_lista(
 
     sessao.commit()
     sessao.refresh(lista)
+    _transmitir(quadro_id, "lista_movida", lista, origem_conexao)
     return lista
 
 
@@ -166,6 +190,7 @@ def arquivar_lista_e_cartoes(
     lista_id: int,
     usuario_atual: Usuario = Depends(obter_usuario_atual),
     sessao: Session = Depends(obter_sessao),
+    origem_conexao: str | None = _ORIGEM_CONEXAO,
 ):
     """Implementa a Etapa 2.7 ao pé da letra: "arquivar a lista arquiva os
     cartões dentro dela". É uma rota própria (POST .../arquivar), e não um
@@ -178,4 +203,5 @@ def arquivar_lista_e_cartoes(
         cartao.arquivado = True
     sessao.commit()
     sessao.refresh(lista)
+    _transmitir(quadro_id, "lista_arquivada", lista, origem_conexao)
     return lista

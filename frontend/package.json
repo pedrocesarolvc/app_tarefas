@@ -3,7 +3,6 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "//comentario": "Este package.json é só o alicerce de ferramental (Vite + React + TypeScript). Nenhum componente de interface foi criado ainda -- o desenho da UI (quadro, lista, cartão, calendário, ver a pasta 'componentes/' listada em 1.6 da documentação) depende de decisões que ainda não foram tomadas nas etapas escritas (só a 1 e a 2 existem hoje, e são sobre domínio/backend, não sobre telas).",
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
@@ -11,7 +10,10 @@
   },
   "dependencies": {
     "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+    "react-dom": "^18.3.1",
+    "@dnd-kit/core": "^6.3.1",
+    "@dnd-kit/sortable": "^9.0.0",
+    "@dnd-kit/utilities": "^3.2.2"
   },
   "devDependencies": {
     "@types/react": "^18.3.18",

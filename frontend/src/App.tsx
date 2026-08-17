@@ -1,47 +1,38 @@
 import { useEffect, useState } from "react";
+import { auth } from "./api/cliente";
+import type { Usuario } from "./api/tipos";
+import QuadroKanban from "./paginas/QuadroKanban";
+import TelaLogin from "./paginas/TelaLogin";
 
 /**
- * Este componente NÃO é a interface do kanban -- é só uma página de
- * espera que prova que o encanamento (Vite servindo React, e o proxy até
- * o backend FastAPI, ver vite.config.ts) funciona de ponta a ponta.
+ * O quadro kanban de verdade (Etapas 2, 3 e 4: listas, cartões,
+ * arrastar-e-soltar, prazo). Este componente só decide UMA coisa: existe
+ * uma sessão válida (cookie de login, Etapa 1.4) ou não -- e mostra a
+ * tela de login ou o quadro de acordo.
  *
- * O desenho de verdade da tela (quadro, lista, cartão, arrastar,
- * calendário) fica para quando a documentação chegar nas etapas que
- * decidem isso -- por ora, desenhar essa interface seria inventar decisão
- * de produto que ainda não foi tomada nem validada com a usuária real do
- * projeto (ver Etapa 1.1 da documentação).
+ * O que ainda não existe aqui, de propósito: o cliente WebSocket da
+ * Etapa 6 (sincronização entre abas/dispositivos, supressão de eco,
+ * reconexão) e o service worker que recebe push da Etapa 5 -- ver
+ * docs/documentacao.md, seção 6.13, sobre o que da Etapa 6 ainda é só
+ * backend.
  */
 export default function App() {
-  // Três estados possíveis da checagem: ainda checando, backend
-  // respondeu, ou backend não respondeu (por exemplo, se ele não estiver
-  // rodando localmente).
-  const [statusBackend, setStatusBackend] = useState<"verificando" | "no-ar" | "inacessivel">(
-    "verificando"
-  );
+  const [usuario, setUsuario] = useState<Usuario | null>(null);
+  const [verificandoSessao, setVerificandoSessao] = useState(true);
 
   useEffect(() => {
-    // "/api" é reescrito para o backend pelo proxy do Vite (ver
-    // vite.config.ts) -- o código do navegador nunca precisa saber a URL
-    // real do backend.
-    fetch("/api/saude")
-      .then((resposta) => (resposta.ok ? setStatusBackend("no-ar") : setStatusBackend("inacessivel")))
-      .catch(() => setStatusBackend("inacessivel"));
+    auth
+      .eu()
+      .then(setUsuario)
+      .catch(() => setUsuario(null))
+      .finally(() => setVerificandoSessao(false));
   }, []);
 
-  return (
-    <main style={{ fontFamily: "system-ui, sans-serif", padding: "2rem", maxWidth: "40rem" }}>
-      <h1>Kanban com tempo</h1>
-      <p>
-        Estrutura inicial do projeto (Etapas 1 e 2 da documentação: domínio e modelo
-        kanban). A interface de verdade -- quadro, listas, cartões, calendário -- ainda
-        não foi desenhada.
-      </p>
-      <p>
-        Backend:{" "}
-        {statusBackend === "verificando" && "verificando…"}
-        {statusBackend === "no-ar" && "no ar ✓"}
-        {statusBackend === "inacessivel" && "inacessível (rode a API em backend/, veja o README)"}
-      </p>
-    </main>
-  );
+  if (verificandoSessao) return null;
+
+  if (!usuario) {
+    return <TelaLogin aoEntrar={setUsuario} />;
+  }
+
+  return <QuadroKanban onSair={() => setUsuario(null)} />;
 }

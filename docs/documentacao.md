@@ -10,7 +10,7 @@
 | **3** | Ordenação — indexação fracionária | ✅ escrita |
 | **4** | A dimensão tempo — data no cartão e o calendário | ✅ escrita |
 | **5** | Notificações — o worker que roda sozinho | ✅ escrita |
-| 6 | Tempo real — WebSocket e atualização otimista | ⬜ pendente |
+| **6** | Tempo real — WebSocket e atualização otimista | ✅ escrita |
 | 7 | Entrega — API, PWA, testes e Docker | ⬜ pendente |
 
 ---
@@ -792,6 +792,191 @@ O teste de assinatura desta etapa é o mais fácil de escrever e o mais valioso:
 
 ---
 
+# Etapa 6 — Tempo real
+
+## 6.1 O que esta etapa entrega
+
+Duas coisas, e vale separá-las porque a segunda costuma ser confundida com a primeira:
+
+**Sincronização** — o quadro aberto no celular reflete o que mudou no computador, sem recarregar. E o aviso in-app da Etapa 5 chega na hora.
+
+**Fluidez** — arrastar um cartão parece instantâneo, sem engasgo.
+
+A segunda não precisa de WebSocket nenhum. É a atualização otimista da seção 6.6, e é de onde vem a maior parte da sensação de "app moderno". Muita gente implementa WebSocket achando que é isso que dá fluidez, e descobre que o app continua travando.
+
+## 6.2 Por que kanban é fácil e texto é infernal
+
+Comparação que explica a etapa inteira.
+
+**Editor de texto colaborativo.** Dois usuários editam a mesma frase. Um digita "muito" na posição 10; o outro apaga o caractere na posição 8. A posição 10 do primeiro não existe mais — as coordenadas mudaram embaixo dele. Cada operação altera o significado das outras.
+
+Resolver isso exige OT (*Operational Transformation*, do Google Docs) ou CRDT — algoritmos com anos de pesquisa acadêmica atrás e notoriamente traiçoeiros de implementar.
+
+**Kanban.** Dois usuários movem o mesmo cartão. Um manda "cartão X vai para lista B, posição 2.5"; o outro, "cartão X vai para lista C, posição 1.5".
+
+As duas operações são **absolutas**. Nenhuma depende de onde o cartão estava. Nenhuma invalida a outra. Aplique uma, depois a outra: o resultado é um estado válido — o cartão está na lista C, posição 1.5. Alguém perdeu o arraste, mas nada corrompeu.
+
+Texto tem operações **relativas** (posição 10 depende do que veio antes). Kanban tem operações **absolutas** (posição 2.5 é 2.5, sempre).
+
+E isso é consequência direta da Etapa 3. Se a posição fosse um inteiro consecutivo, mover um cartão significaria "renumere todos os outros" — uma operação relativa, que invalida o que os outros clientes sabem, e você estaria de volta no inferno do OT.
+
+A decisão de ordenação resolveu, de graça, o problema da sincronização. Duas etapas que pareciam separadas eram a mesma decisão.
+
+## 6.3 Last-write-wins: escolher o simples conscientemente
+
+Como as operações são absolutas, a resolução de conflito pode ser a mais direta possível: quem escreve por último ganha (LWW).
+
+Sem OT, sem CRDT, sem merge. O servidor aplica na ordem em que as mensagens chegam e transmite o resultado. Todos convergem para o mesmo estado.
+
+O que se perde: um dos arrastes é descartado silenciosamente. Com uma usuária em dois dispositivos, a chance de mover o mesmo cartão no mesmo segundo é próxima de zero — e se acontecer, ela arrasta de novo.
+
+LWW aqui é uma escolha, não preguiça. Saber justificar por que o caso simples basta — em vez de implementar CRDT por insegurança — é maturidade de engenharia.
+
+A exceção que vale conhecer: LWW por registro funciona; por campo surpreende. Se dois lados editarem campos diferentes do mesmo cartão e cada um mandar o objeto inteiro, o último salva por cima. A defesa é mandar só o campo alterado (patch), não o cartão completo.
+
+## 6.4 O transporte: WebSocket
+
+HTTP normal é pergunta-resposta. Para saber que algo mudou, o cliente teria que ficar perguntando — *polling* — que gasta bateria e chega atrasado.
+
+WebSocket mantém uma conexão aberta nos dois sentidos: o servidor empurra a mudança quando ela acontece.
+
+```
+Cliente A                Servidor                 Cliente B
+    │                        │                        │
+    │  PATCH /cartoes/X      │                        │
+    ├───────────────────────►│                        │
+    │                        │  valida, grava         │
+    │                        │                        │
+    │◄───────────────────────┼───────────────────────►│
+    │      evento via WebSocket para o quadro         │
+```
+
+A escrita continua sendo HTTP. A rota `PATCH /cartoes/{id}` de sempre, com validação, autenticação e tratamento de erro. O WebSocket é apenas o canal de notificação.
+
+Fazer a escrita pelo WebSocket é uma complicação comum e desnecessária — você reimplementaria à mão tudo que o HTTP já entrega pronto.
+
+## 6.5 Salas: quem recebe o quê
+
+O servidor mantém, em memória, quais conexões estão olhando qual quadro. Quando um cartão do quadro 7 muda, o evento vai só para os conectados ao quadro 7.
+
+```
+conexões = {
+    quadro_7: {conexao_A, conexao_B},
+    quadro_9: {conexao_C},
+}
+```
+
+Isso é *room* ou *pub/sub*, e é o mínimo para não transmitir tudo para todos.
+
+A limitação honesta: esse dicionário vive na memória de um processo. Com dois processos de API, um não enxerga as conexões do outro, e eventos se perdem. A solução de produção é um Redis pub/sub entre eles. Para um app de uma usuária, um processo basta — mas vale saber que a limitação existe e por quê.
+
+O worker da Etapa 5 também emite nesse canal: é assim que o aviso in-app chega sem recarregar.
+
+## 6.6 Atualização otimista: onde mora a fluidez
+
+Se o cliente esperasse a resposta do servidor para mover o cartão na tela, o arraste teria 100–300ms de engasgo. Suficiente para parecer quebrado.
+
+A solução é otimismo: mova na tela imediatamente, antes da confirmação. Mande a requisição em paralelo.
+
+```
+usuária solta o cartão
+      │
+      ├──► move na tela AGORA        (0ms — parece fluido)
+      │
+      └──► PATCH para o servidor     (200ms)
+                │
+                ├── sucesso → nada a fazer, a tela já está certa
+                └── erro    → desfaz o movimento + avisa
+```
+
+O caso de erro é raro, mas precisa existir: sem reversão, a tela mostra um estado que o servidor não tem, e o app mente para a usuária.
+
+## 6.7 O eco: o bug que todo mundo encontra
+
+Quando o servidor transmite "cartão movido", o evento volta também para quem originou a ação — que já aplicou a mudança localmente. Aplicar de novo faz o cartão piscar ou pular.
+
+Duas defesas, ambas de poucas linhas:
+
+Cada cliente tem um id de conexão e ignora eventos que ele mesmo originou
+
+Cada operação tem um id único, e o cliente descarta o eco já processado
+
+Escolha uma e aplique desde o começo. Descobrir isso depois, com o app pronto, dá um bug difícil de nomear — "às vezes o cartão dá um pulinho".
+
+## 6.8 Reconexão
+
+Testando em casa, a conexão nunca cai. Na vida real, o celular sai do wi-fi, entra no elevador, dorme na tela de bloqueio.
+
+Enquanto esteve desconectado, o quadro mudou — e o cliente não sabe disso. Está exibindo estado obsoleto com aparência de atual.
+
+A solução robusta usa um número de versão do quadro: o cliente reconecta dizendo "eu estava na versão 42" e recebe o que mudou desde então.
+
+Decisão do v1: ao reconectar, recarregar o quadro inteiro. Um quadro tem alguns KB. Não vale a complexidade do versionamento.
+
+E a reconexão automática precisa de espera crescente entre tentativas — senão um servidor caído recebe uma enxurrada de clientes tentando mil vezes por segundo.
+
+## 6.9 A ordem de construção
+
+Cada passo é usável sozinho, e essa ordem importa:
+
+1. **Sem tempo real.** O kanban funcionando em HTTP puro; recarregar mostra o estado atual. Já é um app completo.
+2. **Atualização otimista.** Não precisa de WebSocket e é o que faz o app parecer rápido. Retorno enorme, custo baixo.
+3. **WebSocket com salas e LWW.** O tempo real de verdade.
+4. **Reconexão com recarga total.**
+
+Fazer o passo 3 antes do 2 é o erro clássico: você ganha sincronização e continua com um app que engasga ao arrastar.
+
+## 6.10 Como testar
+
+Aqui a testabilidade é a mais difícil do projeto — envolve concorrência, tempo e estado distribuído. O que dá para testar com confiança:
+
+- Cliente conectado a um quadro recebe evento de mudança naquele quadro
+- Cliente não recebe evento de outro quadro
+- Desconectar remove a conexão da sala (sem vazamento de memória)
+- Duas atualizações no mesmo cartão convergem para o último estado (LWW)
+- O cliente ignora o próprio eco
+- Falha na requisição reverte a mudança otimista na interface
+- Reconectar recarrega o estado atual do quadro
+
+Os dois últimos são os que mais evitam bug real. O da reversão porque o caminho de erro raramente é exercitado à mão; o da reconexão porque é impossível de testar por acidente — você teria que desligar o wi-fi no momento certo.
+
+## 6.11 Glossário desta etapa
+
+| Termo | O que é |
+|---|---|
+| **WebSocket** | Conexão bidirecional persistente; o servidor empurra dados sem ser perguntado |
+| **Polling** | Perguntar repetidamente se algo mudou. O que o WebSocket substitui |
+| **Operação absoluta** | Comando que não depende do estado anterior ("vá para posição 2.5") |
+| **Operação relativa** | Comando cujo significado depende do estado ("insira na posição 10") |
+| **LWW** | *Last-write-wins* — a última escrita prevalece |
+| **OT / CRDT** | Algoritmos de merge para operações relativas. Não necessários aqui |
+| **Sala** (*room*) | Agrupamento de conexões que recebem os mesmos eventos |
+| **Atualização otimista** | Aplicar a mudança na tela antes da confirmação do servidor |
+| **Eco** | O evento que volta para quem originou a ação |
+| **Espera crescente** (*backoff*) | Aumentar o intervalo entre tentativas de reconexão |
+
+## 6.12 Notas soltas desta etapa
+
+A separação entre sincronização e fluidez (6.1). São duas entregas diferentes, e a fluidez — a parte que mais impressiona no uso — não precisa de WebSocket nenhum. Por isso a ordem da 6.9 importa: fazer o WebSocket antes da atualização otimista é o erro clássico, você ganha sincronização e continua com um app que engasga ao arrastar.
+
+A limitação honesta das salas (6.5). O dicionário de conexões vive na memória de um processo. Com dois processos de API, um não enxerga as conexões do outro e eventos se perdem — a solução de produção seria Redis pub/sub entre eles. Para uma usuária, um processo basta; mas vale saber onde está o teto.
+
+O eco (6.7) precisa ser resolvido desde o começo. Descobrir depois, com o app pronto, dá um bug difícil até de nomear — "às vezes o cartão dá um pulinho". Duas linhas resolvem se você já souber que existe.
+
+E o fecho que a etapa deixa registrado: a decisão da Etapa 3 pagou aqui. Posições fracionárias tornam a operação absoluta ("vá para posição 2.5"), e é isso que dispensa OT e CRDT. Se a posição fosse inteira e consecutiva, mover seria "renumere todos os outros" — relativo, invalidando o que os outros clientes sabem — e a sincronização exigiria artilharia acadêmica. Duas etapas que pareciam separadas eram a mesma decisão, e isso é o tipo de conexão que só aparece quando se documenta antes de construir.
+
+## 6.13 Estado da implementação
+
+A documentação acima é o desenho completo da etapa. O servidor está inteiro; do lado de cliente, o board de kanban em si já existe (`frontend/src/paginas/QuadroKanban.tsx`) e já implementa a atualização otimista (6.6) — mas o canal em tempo real (WebSocket) ainda não está ligado a ele.
+
+**Construído no servidor:** o transporte (WebSocket por quadro, `backend/app/rotas/realtime.py`), as salas em memória com conectar/desconectar/transmitir (`backend/app/realtime/gerenciador.py`), a transmissão de evento depois de toda escrita de lista/cartão (com o `id_conexao` de origem já viajando no evento, pronto para uma futura supressão de eco), e a ponte HTTP que deixa o worker (um processo à parte, Etapa 5.2) publicar nas salas da API sem Redis (`backend/worker/tempo_real.py`, `POST /interno/eventos-tempo-real`) — essa ponte é uma decisão de arquitetura desta implementação, não algo detalhado no texto acima, exigida pela colisão entre "worker é outro processo" (5.2) e "salas vivem na memória de um processo" (6.5).
+
+**Construído no cliente:** o board de verdade, com arrastar-e-soltar entre colunas (`@dnd-kit`) e atualização otimista (6.6) — o cartão se move na tela no instante em que é solto, a chamada para a API acontece depois, e uma falha reverte recarregando o quadro do servidor. A "fluidez" da 6.1 já está presente: segurar um cartão o destaca (leve aumento de escala, rotação sutil e brilho na cor da coluna) e soltar dispara um pulso curto no lugar onde ele pousou.
+
+**Ainda não construído:** o cliente não abre WebSocket nenhum — não recebe eventos de outra aba, outro dispositivo, nem do worker (a metade "sincronização" da 6.1). Por consequência, a supressão de eco (6.7) e a reconexão com recarga total (6.8) também não existem: não há conexão para ecoar ou reconectar. O `id_conexao` que o servidor já devolve ao conectar (ver 6.5) está pronto para isso quando o cliente WebSocket for escrito.
+
+---
+
 ## Próxima etapa
 
-**Etapa 6 — Tempo real:** WebSocket e atualização otimista — a peça que faz o app parecer vivo, e que a Etapa 3 (posições absolutas, não relativas) deixou pronta para ser fácil.
+**Etapa 7 — Entrega:** API, PWA, testes e Docker — fechar o v1: é quando o frontend deixa de ser esqueleto e o app ganha uma interface de verdade, service worker incluído.

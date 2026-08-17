@@ -59,6 +59,22 @@ def _criar_assinatura(cliente, endpoint: str = "https://push.exemplo/1"):
     ).json()
 
 
+def _sem_evento_realtime(*args, **kwargs) -> None:
+    """Dublê de `publicar_evento_realtime` (Etapa 6.5) que não faz nada.
+    Sem ele, o padrão de `executar_ciclo` tentaria uma chamada HTTP de
+    verdade para `configuracoes.url_api_interna` a cada notificação bem-
+    sucedida -- lenta e sem propósito aqui, já que este arquivo testa o
+    worker isolado; a ponte em si é testada em test_realtime.py."""
+
+
+def _executar(sessao, **kwargs):
+    """`executar_ciclo` com o dublê acima já pré-configurado, para não
+    repetir `publicar_evento_realtime=_sem_evento_realtime` em cada
+    chamada deste arquivo."""
+    kwargs.setdefault("publicar_evento_realtime", _sem_evento_realtime)
+    return executar_ciclo(sessao, **kwargs)
+
+
 def test_worker_seleciona_pendentes_e_ignora_arquivado_sem_prazo_e_ja_notificado(
     cliente, sessao_bruta
 ):
@@ -75,7 +91,7 @@ def test_worker_seleciona_pendentes_e_ignora_arquivado_sem_prazo_e_ja_notificado
         f"/quadros/{quadro['id']}/listas/{lista['id']}/cartoes", json={"titulo": "Sem prazo"}
     ).json()
 
-    executar_ciclo(sessao_bruta, enviar_notificacao=EnviadorFalso(), agora=AGORA)
+    _executar(sessao_bruta, enviar_notificacao=EnviadorFalso(), agora=AGORA)
 
     def notificado(cartao_id: int) -> bool:
         return sessao_bruta.get(Cartao, cartao_id).notificado
@@ -93,7 +109,7 @@ def test_envio_bem_sucedido_marca_notificado_true(cliente, sessao_bruta):
     _, _, cartao = _criar_cartao(cliente, AGORA - timedelta(minutes=5))
 
     enviador = EnviadorFalso()
-    quantidade = executar_ciclo(sessao_bruta, enviar_notificacao=enviador, agora=AGORA)
+    quantidade = _executar(sessao_bruta, enviar_notificacao=enviador, agora=AGORA)
 
     assert quantidade == 1
     assert len(enviador.chamadas) == 1
@@ -109,7 +125,7 @@ def test_envio_com_falha_mantem_notificado_false(cliente, sessao_bruta):
     _, _, cartao = _criar_cartao(cliente, AGORA - timedelta(minutes=5))
 
     enviador = EnviadorFalso(resultados={assinatura["endpoint"]: ConnectionError("serviço de push fora do ar")})
-    quantidade = executar_ciclo(sessao_bruta, enviar_notificacao=enviador, agora=AGORA)
+    quantidade = _executar(sessao_bruta, enviar_notificacao=enviador, agora=AGORA)
 
     assert quantidade == 0
     assert sessao_bruta.get(Cartao, cartao["id"]).notificado is False
@@ -123,7 +139,7 @@ def test_cartao_com_varias_assinaturas_envia_para_todas(cliente, sessao_bruta):
     _, _, cartao = _criar_cartao(cliente, AGORA - timedelta(minutes=5))
 
     enviador = EnviadorFalso()
-    executar_ciclo(sessao_bruta, enviar_notificacao=enviador, agora=AGORA)
+    _executar(sessao_bruta, enviar_notificacao=enviador, agora=AGORA)
 
     assert sorted(enviador.chamadas) == sorted([a["endpoint"], b["endpoint"]])
     assert sessao_bruta.get(Cartao, cartao["id"]).notificado is True
@@ -136,7 +152,7 @@ def test_assinatura_expirada_e_removida_do_banco(cliente, sessao_bruta):
     _criar_cartao(cliente, AGORA - timedelta(minutes=5))
 
     enviador = EnviadorFalso(resultados={assinatura["endpoint"]: AssinaturaExpiradaError("410")})
-    executar_ciclo(sessao_bruta, enviar_notificacao=enviador, agora=AGORA)
+    _executar(sessao_bruta, enviar_notificacao=enviador, agora=AGORA)
 
     assert sessao_bruta.get(AssinaturaPush, assinatura["id"]) is None
 
@@ -150,7 +166,7 @@ def test_avisos_atrasados_alem_do_limite_sao_marcados_sem_enviar(cliente, sessao
     )
 
     enviador = EnviadorFalso()
-    quantidade = executar_ciclo(sessao_bruta, enviar_notificacao=enviador, agora=AGORA)
+    quantidade = _executar(sessao_bruta, enviar_notificacao=enviador, agora=AGORA)
 
     assert quantidade == 0  # marcado, mas não contado como "notificado de verdade"
     assert enviador.chamadas == []
@@ -164,8 +180,8 @@ def test_rodar_worker_duas_vezes_seguidas_nao_envia_duplicado(cliente, sessao_br
     _criar_cartao(cliente, AGORA - timedelta(minutes=5))
 
     enviador = EnviadorFalso()
-    primeira_rodada = executar_ciclo(sessao_bruta, enviar_notificacao=enviador, agora=AGORA)
-    segunda_rodada = executar_ciclo(sessao_bruta, enviar_notificacao=enviador, agora=AGORA)
+    primeira_rodada = _executar(sessao_bruta, enviar_notificacao=enviador, agora=AGORA)
+    segunda_rodada = _executar(sessao_bruta, enviar_notificacao=enviador, agora=AGORA)
 
     assert primeira_rodada == 1
     assert segunda_rodada == 0

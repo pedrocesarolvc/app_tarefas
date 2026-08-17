@@ -21,6 +21,22 @@ from sqlalchemy.pool import StaticPool
 
 from app.database import Base, obter_sessao
 from app.main import app
+from app.realtime.gerenciador import gerenciador_de_salas
+
+
+@pytest.fixture(autouse=True)
+def salas_de_tempo_real_isoladas():
+    """`gerenciador_de_salas` (app/realtime/gerenciador.py) é uma
+    instância ÚNICA do processo -- de propósito (Etapa 6.5: as salas vivem
+    na memória de um processo só). Isso significa que, sem limpeza, uma
+    conexão WebSocket aberta e não fechada corretamente num teste vazaria
+    para o próximo -- e como cada teste recomeça a numeração dos ids do
+    banco do zero, um `quadro_id=1` do teste anterior colidiria com o
+    `quadro_id=1` do teste atual. `autouse=True`: roda para TODO teste,
+    sem precisar declarar a fixture explicitamente."""
+    gerenciador_de_salas.zerar()
+    yield
+    gerenciador_de_salas.zerar()
 
 
 @pytest.fixture()

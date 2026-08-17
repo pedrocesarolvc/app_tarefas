@@ -1,9 +1,64 @@
-/* Reset mínimo -- nada de sistema de design aqui ainda, isso nasce junto
-   com o desenho real das telas, quando essa etapa da documentação existir. */
+/* Tema global: modo escuro, cores desaturadas de propósito (o pedido foi
+   "cores menos agressivas aos olhos") -- nenhum tom aqui é uma cor pura
+   ou muito saturada, todas passam por um cinza-azulado por baixo. */
+:root {
+  --cor-fundo: #14161c;
+  --cor-fundo-quadro: #191c24;
+  --cor-fundo-coluna: #1f232c;
+  --cor-fundo-cartao: #262b36;
+  --cor-fundo-cartao-hover: #2b3140;
+  --cor-borda: #2f3441;
+  --cor-borda-forte: #3a4152;
+  --cor-texto: #e4e6eb;
+  --cor-texto-fraco: #8b93a7;
+  --cor-texto-fraquissimo: #5b6272;
+  --cor-perigo: #c97b86;
+  --cor-perigo-fundo: #2c1f22;
+
+  --raio: 12px;
+  --raio-pequeno: 8px;
+  --sombra-suave: 0 1px 2px rgba(0, 0, 0, 0.24), 0 2px 8px rgba(0, 0, 0, 0.16);
+
+  color-scheme: dark;
+}
+
 * {
   box-sizing: border-box;
 }
 
 body {
   margin: 0;
+  background: var(--cor-fundo);
+  color: var(--cor-texto);
+  font-family:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Inter, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+button {
+  font-family: inherit;
+}
+
+/* Paleta cíclica dos acentos de coluna/cartão -- sete tons dessaturados,
+   "delicados" em vez de blocos sólidos e vibrantes como um kanban comum
+   (o pedido explícito foi formas menos agressivas). Cada lista recebe um
+   tom pela posição dela no quadro (ver ColunaLista.tsx), então o
+   significado nunca é fixo ("vermelho = travado") -- é só variedade
+   visual, coerente com a Etapa 2.3 (o kanban não tem estados fixos).
+   Cada variável tem uma versão -fraca, usada nos brilhos de animação. */
+:root {
+  --acento-1: #c98f9a;
+  --acento-1-fraca: rgba(201, 143, 154, 0.35);
+  --acento-2: #d3ab6e;
+  --acento-2-fraca: rgba(211, 171, 110, 0.35);
+  --acento-3: #8fb99e;
+  --acento-3-fraca: rgba(143, 185, 158, 0.35);
+  --acento-4: #7fa3c9;
+  --acento-4-fraca: rgba(127, 163, 201, 0.35);
+  --acento-5: #a595cf;
+  --acento-5-fraca: rgba(165, 149, 207, 0.35);
+  --acento-6: #c99c7f;
+  --acento-6-fraca: rgba(201, 156, 127, 0.35);
+  --acento-7: #7fc0c2;
+  --acento-7-fraca: rgba(127, 192, 194, 0.35);
 }

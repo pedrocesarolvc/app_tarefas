@@ -22,8 +22,10 @@ from app.modelos.assinatura_push import AssinaturaPush
 from app.modelos.cartao import Cartao
 from app.modelos.lista import Lista
 from app.modelos.quadro import Quadro
+from app.schemas.cartao import CartaoLeitura
 from worker.push import AssinaturaExpiradaError
 from worker.push import enviar_notificacao as enviar_notificacao_padrao
+from worker.tempo_real import publicar_evento_de_notificacao as publicar_evento_de_notificacao_padrao
 
 # Etapa 5.3: "ignorar avisos atrasados além de um limite (digamos, 24
 # horas), marcando-os como notificados sem enviar". Sem isso, um worker
@@ -49,12 +51,13 @@ def _selecionar_cartoes_pendentes(sessao: Session, agora: datetime):
     esses avisos em silêncio se o worker não estivesse rodando bem nessa
     janela específica.
 
-    Devolve pares (Cartao, usuario_id) — o `usuario_id` vem do JOIN
-    Cartao → Lista → Quadro (o cartão não guarda quadro_id, Etapa 2.5), e
-    é ele que diz para quem mandar a notificação.
+    Devolve triplas (Cartao, quadro_id, usuario_id) — as duas vêm do JOIN
+    Cartao → Lista → Quadro (o cartão não guarda quadro_id, Etapa 2.5):
+    `usuario_id` diz para quem mandar o Web Push (Etapa 5.6);
+    `quadro_id` diz em qual sala publicar o aviso in-app (Etapa 6.5).
     """
     consulta = (
-        select(Cartao, Quadro.usuario_id)
+        select(Cartao, Quadro.id, Quadro.usuario_id)
         .join(Lista, Cartao.lista_id == Lista.id)
         .join(Quadro, Lista.quadro_id == Quadro.id)
         .where(
@@ -120,6 +123,7 @@ def _corpo_da_notificacao(cartao: Cartao) -> str:
 def executar_ciclo(
     sessao: Session,
     enviar_notificacao: Callable[[AssinaturaPush, str, str], None] = enviar_notificacao_padrao,
+    publicar_evento_realtime: Callable[[int, dict], None] = publicar_evento_de_notificacao_padrao,
     agora: datetime | None = None,
 ) -> int:
     """Um ciclo do laço: seleciona os cartões pendentes, tenta enviar,
@@ -132,13 +136,14 @@ def executar_ciclo(
     `agora` é injetável de propósito: os testes fixam um instante em vez
     de depender do relógio de verdade, o que tornaria os testes lentos
     (esperar minutos de verdade) ou frágeis (correr contra o tempo real).
-    `enviar_notificacao` é injetável pelo mesmo motivo do lado do envio —
-    o dublê da Etapa 5.10.
+    `enviar_notificacao` e `publicar_evento_realtime` são injetáveis pelo
+    mesmo motivo do lado do envio — os dublês da Etapa 5.10, agora dois
+    canais em vez de um.
     """
     agora = agora or datetime.now(timezone.utc)
     notificados_neste_ciclo = 0
 
-    for cartao, usuario_id in _selecionar_cartoes_pendentes(sessao, agora):
+    for cartao, quadro_id, usuario_id in _selecionar_cartoes_pendentes(sessao, agora):
         if agora - cartao.notificar_em > LIMITE_DE_ATRASO:
             # Etapa 5.3: atrasado demais — marca como notificado SEM
             # enviar, para não disparar um aviso que já perdeu o sentido.
@@ -159,6 +164,10 @@ def executar_ciclo(
             # hipóteses, manda de novo no próximo ciclo.
             cartao.notificado = True
             notificados_neste_ciclo += 1
+            # Etapa 5.8/6.5: "o worker também emite nesse canal" -- só
+            # quando o cartão foi de fato notificado (nunca no ramo do
+            # atraso excessivo acima, que nem tenta enviar nada).
+            publicar_evento_realtime(quadro_id, CartaoLeitura.model_validate(cartao).model_dump(mode="json"))
         # Se `sucesso` for False, `notificado` permanece False de
         # propósito — nenhuma linha a escrever aqui é a regra em si.
 

@@ -8,7 +8,7 @@ recebe o `Usuario` autenticado e filtra as consultas por ele, em vez de
 confiar em qualquer id que o cliente possa mandar no corpo da requisição.
 """
 
-from fastapi import Depends, HTTPException, Request, status
+from fastapi import Depends, HTTPException, Request, WebSocket, status
 from sqlalchemy.orm import Session
 
 from app.auth.seguranca import NOME_COOKIE_SESSAO, ler_usuario_id_do_token
@@ -46,3 +46,23 @@ def obter_usuario_atual(
         raise erro_nao_autenticado
 
     return usuario
+
+
+async def obter_usuario_da_conexao(websocket: WebSocket, sessao: Session) -> Usuario | None:
+    """A mesma verificação de `obter_usuario_atual`, adaptada para
+    WebSocket (Etapa 6.4: "a escrita continua sendo HTTP" -- mas a
+    conexão em si também precisa saber quem é a usuária, para aplicar a
+    fronteira de posse do quadro).
+
+    `WebSocket.cookies` existe no Starlette com a mesma forma de
+    `Request.cookies` -- o cookie de sessão chega junto do handshake HTTP
+    inicial da conexão, antes dela virar WebSocket de fato.
+
+    Devolve `None` em vez de levantar `HTTPException`: um WebSocket não
+    tem uma resposta HTTP de erro no sentido usual -- quem chama fecha a
+    conexão com um código apropriado (ver app/rotas/realtime.py)."""
+    token = websocket.cookies.get(NOME_COOKIE_SESSAO)
+    usuario_id = ler_usuario_id_do_token(token) if token else None
+    if usuario_id is None:
+        return None
+    return sessao.get(Usuario, usuario_id)

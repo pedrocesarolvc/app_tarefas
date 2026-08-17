@@ -6,7 +6,41 @@ Cada entrada referencia a seção da documentação (`docs/documentacao.md`) que
 
 ## [Não lançado]
 
-Nada pendente no momento. Próximo passo natural: escrever a Etapa 6 (tempo real — WebSocket e atualização otimista).
+Pendente da Etapa 6: o cliente WebSocket (sincronização entre abas/dispositivos, supressão de eco, reconexão). Próximo passo natural: escrever a Etapa 7 (entrega — API, PWA, testes e Docker), ou ligar o cliente WebSocket ao board que já existe.
+
+## [0.5.0] - 2026-08-17
+
+Implementa o lado de servidor da Etapa 6 (tempo real) — WebSocket por quadro, salas em memória, e a ponte que deixa o worker publicar nelas — e, junto, a primeira interface de verdade do projeto: o quadro kanban visual, com arrastar-e-soltar.
+
+### Adicionado
+
+- `backend/app/realtime/gerenciador.py`: `GerenciadorDeSalas`, uma instância única do processo com `conectar`/`desconectar`/`transmitir` (async) e `transmitir_sync` (para as rotas HTTP síncronas do projeto chamarem, via `anyio.from_thread.run` — o jeito correto de voltar ao loop de eventos principal a partir da thread onde o FastAPI roda uma rota `def`). `zerar()` e `quantidade_de_conexoes()` existem só para os testes.
+- `backend/app/realtime/eventos.py`: `construir_evento(tipo, dados, origem)` — o formato único dos eventos transmitidos, isolado pelo mesmo motivo de `servicos/ordenacao.py` e `servicos/prazos.py`.
+- `backend/app/rotas/realtime.py`: `GET /ws/quadros/{quadro_id}` (autenticação por cookie + fronteira de posse do quadro, igual ao resto da API; fecha com código 4401/4404 em vez de levantar `HTTPException`, que não existe depois do handshake aceito) e `POST /interno/eventos-tempo-real` (só para o worker chamar, autenticado por uma chave compartilhada simples — `include_in_schema=False`, não aparece no Swagger).
+- `obter_usuario_da_conexao` em `app/auth/dependencias.py`: a mesma verificação de `obter_usuario_atual`, adaptada para `WebSocket` (devolve `None` em vez de levantar `HTTPException`).
+- Toda escrita de lista e cartão (`criar`, `atualizar`/`mover`, `arquivar`) passou a transmitir um evento para a sala do quadro depois do commit, aceitando um cabeçalho opcional `X-Origem-Conexao` que é repassado ao evento como `origem` — a matéria-prima para a supressão de eco (Etapa 6.7) que um cliente futuro vai implementar.
+- `backend/worker/tempo_real.py`: `publicar_evento_de_notificacao`, a ponte HTTP best-effort entre o worker e o canal em tempo real da API (Etapa 5.8/6.5). `executar_ciclo` (worker/agendador.py) chama isso depois de notificar um cartão com sucesso; a seleção de cartões pendentes passou a trazer também o `quadro_id`, não só o `usuario_id`.
+- `chave_interna` e `url_api_interna` em `app/config.py`, e os serviços `api`/`worker` no `docker-compose.yml` passaram a compartilhar `CHAVE_INTERNA`.
+- `backend/tests/test_realtime.py`: 6 testes cobrindo o que dá para testar do checklist 6.10 no backend (evento chega só para a sala certa, desconectar não vaza memória, LWW por convergência de escritas sequenciais, `origem` viaja no evento) usando `TestClient.websocket_connect` — sem servidor real rodando à parte.
+- Fixture `autouse` `salas_de_tempo_real_isoladas` em `tests/conftest.py`: zera `gerenciador_de_salas` antes/depois de cada teste (é uma instância única do processo; sem isso, um teste vazaria conexões para o próximo).
+- **O quadro kanban de verdade**, a primeira interface real do projeto (`frontend/src/paginas/QuadroKanban.tsx` + `TelaLogin.tsx`): colunas e cartões vindos da API, arrastar-e-soltar entre listas com `@dnd-kit` (`@dnd-kit/core`, `/sortable`, `/utilities`), e atualização otimista (Etapa 6.6) — o cartão se move na tela no instante em que é solto; a chamada `POST .../mover` acontece depois, e uma falha recarrega o quadro do zero em vez de deixar a tela mostrar um estado que a API não tem.
+- `frontend/src/api/`: `tipos.ts` (espelhando os schemas Pydantic — `posicao` como `string`, porque o backend serializa `Decimal` como string para não perder a precisão da Etapa 3.6 num `number` de 64 bits) e `cliente.ts` (um wrapper fino sobre `fetch`, sem biblioteca de HTTP).
+- Tema visual (`frontend/src/index.css`, `estilos/kanban.css`, `estilos/login.css`): modo escuro, paleta de sete acentos desaturados atribuídos por posição da coluna (não por nome — o kanban não tem estados fixos, Etapa 2.3), geometria "achatada" de propósito — o acento de uma coluna é só um traço fino de 3px no topo e uma barra fina na lateral do cartão, não um bloco sólido e alto.
+- Três animações de arrastar, todas via classes CSS + `@dnd-kit`: o cartão de origem vira um contorno tracejado enquanto está no ar (`.cartao--espaco-reservado`); a cópia que segue o cursor ganha leve escala, rotação e brilho na cor da coluna (`.cartao--flutuando`, renderizada dentro de um `<DragOverlay>`); e o cartão pulsa uma vez ao pousar no destino (`.cartao--pousou`, um `@keyframes` de ~0.6s disparado por um id de "acabou de pousar" no estado do React, desligado sozinho por um `setTimeout`).
+
+### Alterado
+
+- `worker/agendador.py`: `executar_ciclo` ganhou o parâmetro `publicar_evento_realtime` (injetável, mesmo padrão de `enviar_notificacao` — Etapa 5.10). `test_worker.py` ganhou um dublê no-op (`_sem_evento_realtime`) para não fazer uma chamada HTTP de verdade (e lenta) em cada teste que notifica um cartão.
+
+### Decisões registradas nesta etapa (não estão na documentação ainda)
+
+- A ponte HTTP worker→API (`POST /interno/eventos-tempo-real`) não está detalhada na Etapa 6 do texto original — ela nasce da colisão entre duas decisões de etapas diferentes: o worker é um processo à parte (Etapa 5.2), e as salas vivem na memória de UM processo (Etapa 6.5). Como a Etapa 5.2 já descartou Redis para o v1, HTTP entre os próprios processos do projeto foi a ponte de menor complexidade que não introduz infraestrutura nova. É best-effort de propósito: a notificação de verdade (Web Push) já foi tentada antes; perder o aviso in-app é preferível a travar o worker por causa dele.
+- Autenticação da rota interna: uma chave simples compartilhada (`CHAVE_INTERNA`), não um esquema novo — o mesmo padrão de custo-benefício de `CHAVE_SECRETA` (Etapa 1.4), proporcional ao que está em jogo (a rota só publica em salas; não lê nem escreve nada do banco).
+- Nenhuma parte de cliente desta etapa (atualização otimista, eco, reconexão) tinha sido implementada quando o servidor foi escrito — não existia frontend de kanban para aplicá-la. Isso mudou ainda dentro desta mesma versão: o board foi construído logo em seguida, e já cobre a atualização otimista (6.6). Eco (6.7) e reconexão (6.8) continuam pendentes porque dependem do cliente WebSocket, que ainda não existe — ver `docs/documentacao.md`, seção 6.13, atualizada de acordo.
+- Cor de acento por coluna: atribuída pela POSIÇÃO da coluna no quadro (um índice cíclico sobre uma paleta de sete tons), não por nome ou id — o domínio não tem estados fixos (Etapa 2.3, "não existe tabela de estados possíveis"), então não haveria um nome de coluna correto para fixar "essa é sempre a cor X".
+- Verificação do drag-and-drop: sem captura de tela disponível neste ambiente, o comportamento foi validado disparando `PointerEvent`s sintéticos (pointerdown/move/up) via JavaScript na página real — backend rodando contra um SQLite temporário criado só para este teste manual, nunca commitado — conferindo as classes CSS aplicadas em cada fase do arrasto e a persistência após recarregar a página do zero. A suíte automatizada (`pytest`) não foi alterada por essa verificação.
+
+## [0.4.0] - 2026-08-10
 
 ## [0.4.0] - 2026-08-10
 
