@@ -269,6 +269,68 @@
   animation: pousar-pulso 0.55s ease-out;
 }
 
+/* --- Painel de avisos (Etapa 7.4) --- */
+
+.painel-avisos {
+  position: relative;
+}
+
+.botao-sino {
+  position: relative;
+  font-size: 15px;
+  padding: 6px 10px;
+}
+
+.painel-avisos__contagem {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  background: var(--acento-1);
+  color: #14161c;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+  border-radius: 999px;
+  padding: 3px 5px;
+}
+
+.painel-avisos__lista {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 8px);
+  width: 280px;
+  max-height: 320px;
+  overflow-y: auto;
+  background: var(--cor-fundo-coluna);
+  border: 1px solid var(--cor-borda);
+  border-radius: var(--raio);
+  box-shadow: var(--sombra-suave);
+  padding: 6px;
+  z-index: 20;
+}
+
+.painel-avisos__vazio {
+  color: var(--cor-texto-fraco);
+  font-size: 13px;
+  padding: 10px;
+  margin: 0;
+}
+
+.painel-avisos__item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+  border-radius: var(--raio-pequeno);
+  font-size: 12.5px;
+}
+.painel-avisos__item:hover {
+  background: var(--cor-fundo-cartao);
+}
+.painel-avisos__item span {
+  color: var(--cor-texto-fraco);
+}
+
 @media (prefers-reduced-motion: reduce) {
   .cartao,
   .cartao--flutuando,

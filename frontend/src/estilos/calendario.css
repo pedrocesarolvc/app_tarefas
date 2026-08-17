@@ -1,0 +1,61 @@
+.pagina-calendario {
+  flex: 1;
+  overflow-y: auto;
+  padding: 24px 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+  max-width: 640px;
+}
+
+.pagina-calendario__estado {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--cor-texto-fraco);
+  font-size: 14px;
+  padding: 40px 20px;
+  text-align: center;
+}
+
+.pagina-calendario__dia {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.pagina-calendario__cabecalho-dia {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--cor-texto-fraco);
+  text-transform: capitalize;
+}
+
+.pagina-calendario__lista {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.pagina-calendario__item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: var(--cor-fundo-coluna);
+  border: 1px solid var(--cor-borda);
+  border-left: 3px solid var(--acento-4);
+  border-radius: var(--raio-pequeno);
+  padding: 9px 12px;
+  font-size: 13.5px;
+}
+
+.pagina-calendario__hora {
+  color: var(--cor-texto-fraco);
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+}

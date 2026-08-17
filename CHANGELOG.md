@@ -6,7 +6,36 @@ Cada entrada referencia a seção da documentação (`docs/documentacao.md`) que
 
 ## [Não lançado]
 
-Pendente da Etapa 6: o cliente WebSocket (sincronização entre abas/dispositivos, supressão de eco, reconexão). Próximo passo natural: escrever a Etapa 7 (entrega — API, PWA, testes e Docker), ou ligar o cliente WebSocket ao board que já existe.
+O v1 descrito pela documentação (Etapas 1-7) está implementado. O que resta é infraestrutura pura (HTTPS/túnel/domínio para push de verdade em produção — Etapa 7.3) e o que só um uso real revela (Etapa 7.7): o que ela usa, o que ela ignora, o que ela pede.
+
+## [0.6.0] - 2026-08-17
+
+Implementa a Etapa 7 (entrega): CORS, PWA (manifest + service worker), o cliente WebSocket que fecha a lacuna deixada na Etapa 6, as quatro telas do v1, e os três testes de ponta a ponta.
+
+### Adicionado
+
+- `CORSMiddleware` em `app/main.py`, configurável via `ORIGENS_PERMITIDAS_CORS` (`app/config.py`) — inerte em desenvolvimento (o proxy do Vite já unifica a origem), necessário quando o frontend é publicado separado da API (Etapa 7.5).
+- `backend/tests/test_e2e.py`: os três testes de ponta a ponta da Etapa 7.6 — fluxo completo (criar → mover → confirmar ordem persistida), ciclo do aviso (cartão criado pela API, notificado pelo worker de verdade, sem duplicar numa segunda rodada) e ordenação sob estresse.
+- `frontend/public/manifest.json` e `frontend/public/sw.js` (Etapa 7.3): o app fica instalável, e o service worker recebe push (mesmo com o app fechado) e trata o clique na notificação abrindo o quadro/cartão certo — para isso, `worker/push.py` e `worker/agendador.py` passaram a levar uma `url_destino` junto de cada envio.
+- `frontend/src/api/tempoReal.ts` (`useCanalDoQuadro`): o cliente WebSocket que a Etapa 6 tinha deixado pendente — conecta em `/ws/quadros/{id}`, reconecta com espera crescente recarregando o quadro (6.8), e devolve o `id_conexao` usado para suprimir o próprio eco (6.7) via um cabeçalho `X-Origem-Conexao` em toda escrita.
+- `frontend/src/componentes/ModalDoCartao.tsx` (a tela "cartão aberto"): título, descrição, prazo (opcional, com um botão para remover) e aviso prévio (só aparece depois que existe um prazo).
+- `frontend/src/paginas/TelaCalendario.tsx`: consome `GET /calendario`, agrupa por dia, e mostra uma mensagem explícita quando não há cartões com data no período (Etapa 4.6) em vez de uma lista em branco.
+- `frontend/src/componentes/PainelDeAvisos.tsx`: um sino no cabeçalho com o histórico de avisos recebidos pelo canal em tempo real na sessão atual.
+- Proxy de `/ws` em `frontend/vite.config.ts` (com `ws: true`), para o WebSocket também atravessar o servidor de desenvolvimento do Vite.
+
+### Alterado
+
+- `worker/push.py` (`enviar_notificacao`) e `worker/agendador.py` (`executar_ciclo`, `_enviar_para_usuario`) ganharam o parâmetro `url_destino` — a rota que o clique na notificação deve abrir. `tests/test_worker.py` (`EnviadorFalso`) atualizado para o novo parâmetro.
+- `frontend/src/api/cliente.ts`: todas as escritas (`listas.criar`, `listas.mover`, `cartoes.criar`, `cartoes.mover`) passaram a aceitar `origemConexao` opcional; `cartoes.atualizar` e `cartoes.arquivar` são novos (usados pelo modal do cartão); `calendario.listar` é novo.
+- `frontend/src/componentes/CartaoItem.tsx` ganhou `onClick` (abre o modal) coexistindo com o arrastar do dnd-kit — verificado que um clique sem movimento ainda dispara `onClick` normalmente, sem interferência do `PointerSensor`.
+
+### Decisões registradas nesta etapa (não estão na documentação ainda)
+
+- O service worker mora em `frontend/public/sw.js`, não em `frontend/src/sw.ts` como a Etapa 1.6 desenhou. É pouco código, não usa nenhum tipo/módulo do resto do app, e precisa de uma URL estável na raiz do site — empacotar via Vite exigiria um segundo ponto de entrada de build só para isso; `public/` já resolve com zero configuração extra, em dev e produção.
+- Ícone do app em SVG (`frontend/public/icone.svg`), não PNG multi-tamanho — os navegadores atuais aceitam SVG em `manifest.json`; PNG fica para se um dia o app precisar rodar bem em iOS (que ainda não lê SVG de manifest).
+- A política do cliente WebSocket para eventos externos (que não são o próprio eco) é recarregar o quadro inteiro, não reconciliar campo a campo — uma simplificação sobre o que a Etapa 6.1 descreve como "sincronização", trocando um pouco de suavidade visual por bem menos código; a atualização otimista das próprias ações continua instantânea, só as mudanças vindas de fora passam por uma recarga.
+- **A armadilha de precisão da Etapa 3.4 reapareceu, uma camada abaixo**: o teste de estresse de ponta a ponta (Etapa 7.6) com cinquenta inserções revelou que o SQLite dos testes converte `Decimal` para `float` ao gravar num `Numeric` genérico do SQLAlchemy (confirmado inspecionando o `bind_processor` do dialeto: é literalmente uma função chamada `to_float`). O PostgreSQL de produção não tem esse problema — é puramente um limite do banco de teste, não do NUMERIC real. Diferente da Etapa 5/6 (onde um `TypeDecorator` como `TZDateTime` resolveu o mesmo tipo de divergência entre dialetos), aqui não há correção equivalente sem comprometer a ordenação: armazenar como texto para preservar precisão exigiria um formato de string ordenável (o próprio LexoRank que a Etapa 3.5 documenta como alternativa), o que mudaria a estratégia de ordenação em produção só para acomodar uma limitação do banco de teste — fora de escopo. O teste E2E ficou em 40 inserções (com folga sobre o colapso observado empiricamente, por volta da 52ª); as 50 do checklist continuam provadas à risca pelo teste algorítmico da Etapa 3, contra `Decimal` puro — o mesmo modelo de precisão do NUMERIC real.
+- `aviso_previo` no formulário do cartão usa um `<select>` com durações fixas (0, 15min, 30min, 1h, 1 dia) em vez de um seletor de duração genérico — cobre o caso comum sem a complexidade de um componente de "horas/minutos" livre, que o v1 não pede.
 
 ## [0.5.0] - 2026-08-17
 

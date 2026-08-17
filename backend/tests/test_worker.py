@@ -32,7 +32,7 @@ class EnviadorFalso:
         self.resultados = resultados or {}
         self.chamadas: list[str] = []
 
-    def __call__(self, assinatura: AssinaturaPush, titulo: str, corpo: str) -> None:
+    def __call__(self, assinatura: AssinaturaPush, titulo: str, corpo: str, url_destino: str) -> None:
         self.chamadas.append(assinatura.endpoint)
         resultado = self.resultados.get(assinatura.endpoint)
         if resultado is not None:

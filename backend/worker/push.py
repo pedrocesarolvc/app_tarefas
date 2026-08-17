@@ -31,9 +31,15 @@ class AssinaturaExpiradaError(Exception):
     considerada temporária (Etapa 5.9)."""
 
 
-def enviar_notificacao(assinatura: AssinaturaPush, titulo: str, corpo: str) -> None:
+def enviar_notificacao(assinatura: AssinaturaPush, titulo: str, corpo: str, url_destino: str) -> None:
     """Envia UMA notificação para UMA assinatura (Etapa 5.5: "você
     entrega a mensagem ao carteiro do Google, e ele leva").
+
+    `url_destino` viaja dentro do payload e é o que permite ao service
+    worker (Etapa 5.7, frontend/src/sw.ts) abrir o app já no quadro certo
+    ao clicar na notificação, em vez de sempre cair na tela inicial —
+    "é um detalhe pequeno e é o que faz a notificação parecer útil em vez
+    de decorativa".
 
     Não devolve nada em caso de sucesso. Levanta `AssinaturaExpiradaError`
     se a assinatura expirou; deixa propagar qualquer outra exceção (rede
@@ -49,7 +55,7 @@ def enviar_notificacao(assinatura: AssinaturaPush, titulo: str, corpo: str) -> N
                     "auth": assinatura.chave_auth,
                 },
             },
-            data=json.dumps({"titulo": titulo, "corpo": corpo}),
+            data=json.dumps({"titulo": titulo, "corpo": corpo, "url": url_destino}),
             vapid_private_key=configuracoes.vapid_private_key,
             vapid_claims={"sub": configuracoes.vapid_subject},
         )

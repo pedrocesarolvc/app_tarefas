@@ -11,7 +11,7 @@
 | **4** | A dimensão tempo — data no cartão e o calendário | ✅ escrita |
 | **5** | Notificações — o worker que roda sozinho | ✅ escrita |
 | **6** | Tempo real — WebSocket e atualização otimista | ✅ escrita |
-| 7 | Entrega — API, PWA, testes e Docker | ⬜ pendente |
+| **7** | Entrega — API, PWA, testes e Docker | ✅ escrita |
 
 ---
 
@@ -973,10 +973,157 @@ A documentação acima é o desenho completo da etapa. O servidor está inteiro;
 
 **Construído no cliente:** o board de verdade, com arrastar-e-soltar entre colunas (`@dnd-kit`) e atualização otimista (6.6) — o cartão se move na tela no instante em que é solto, a chamada para a API acontece depois, e uma falha reverte recarregando o quadro do servidor. A "fluidez" da 6.1 já está presente: segurar um cartão o destaca (leve aumento de escala, rotação sutil e brilho na cor da coluna) e soltar dispara um pulso curto no lugar onde ele pousou.
 
-**Ainda não construído:** o cliente não abre WebSocket nenhum — não recebe eventos de outra aba, outro dispositivo, nem do worker (a metade "sincronização" da 6.1). Por consequência, a supressão de eco (6.7) e a reconexão com recarga total (6.8) também não existem: não há conexão para ecoar ou reconectar. O `id_conexao` que o servidor já devolve ao conectar (ver 6.5) está pronto para isso quando o cliente WebSocket for escrito.
+**Atualização da Etapa 7:** o cliente WebSocket foi escrito (`frontend/src/api/tempoReal.ts`) — a lacuna descrita abaixo, na versão original desta seção, está fechada. O app recebe eventos de outra aba/dispositivo, reconecta com espera crescente recarregando o quadro (6.8), e ignora o próprio eco pelo `id_conexao` (6.7). Ver a seção 7.10 para os detalhes.
+
+~~**Ainda não construído:** o cliente não abre WebSocket nenhum — não recebe eventos de outra aba, outro dispositivo, nem do worker (a metade "sincronização" da 6.1). Por consequência, a supressão de eco (6.7) e a reconexão com recarga total (6.8) também não existem: não há conexão para ecoar ou reconectar. O `id_conexao` que o servidor já devolve ao conectar (ver 6.5) está pronto para isso quando o cliente WebSocket for escrito.~~
 
 ---
 
-## Próxima etapa
+# Etapa 7 — Entrega
 
-**Etapa 7 — Entrega:** API, PWA, testes e Docker — fechar o v1: é quando o frontend deixa de ser esqueleto e o app ganha uma interface de verdade, service worker incluído.
+## 7.1 O que muda aqui
+
+As seis etapas anteriores construíram as peças. Esta as torna usáveis por uma pessoa que não é você.
+
+E aqui está a diferença deste projeto para os outros três: não há recrutador. O único juiz é ela, usando o app no celular, num dia comum. Isso simplifica algumas coisas (ninguém vai auditar seu README) e endurece outras — um app que trava ao arrastar, ou que não notifica, é abandonado em uma semana e nenhuma elegância de arquitetura salva.
+
+O critério de sucesso desta etapa é concreto: **ela abrir o app no dia seguinte sem você pedir.**
+
+## 7.2 A API completa
+
+O conjunto de endpoints, agora reunido:
+
+| Recurso | Rotas | Etapas |
+|---|---|---|
+| Auth | `POST /auth/login`, `POST /auth/registrar` | 2 |
+| Quadros | CRUD em `/quadros` | 2 |
+| Listas | CRUD em `/listas`, com reordenação | 2, 3 |
+| Cartões | CRUD em `/cartoes` | 2, 4 |
+| Mover cartão | `PATCH /cartoes/{id}/mover` | 3 |
+| Calendário | `GET /calendario?de=&ate=` | 4 |
+| Push | `POST /push/assinar`, `DELETE /push/assinar` | 5 |
+| Tempo real | `WS /ws/quadro/{id}` | 6 |
+
+Duas decisões de forma:
+
+**Mover cartão tem rota própria.** Não é um `PATCH /cartoes/{id}` genérico com `lista_id` e `posicao` no corpo. Mover é uma operação com semântica específica — recebe "antes de qual cartão" ou "depois de qual", e o servidor calcula a posição. Isso mantém o cálculo fracionário da Etapa 3 num lugar só, em vez de espalhar a lógica pelo cliente.
+
+**A escrita é sempre HTTP; o WebSocket só notifica.** Reforçando a decisão da Etapa 6 — validação, autenticação e tratamento de erro ficam onde já funcionam.
+
+## 7.3 O PWA: o que faz virar "app" no celular dela
+
+Três peças transformam um site num app instalável:
+
+**`manifest.json`** — nome, ícone, cor, e o modo de exibição em tela cheia. É o que dá o ícone na tela inicial e remove a barra do navegador.
+
+**Service worker** — já construído na Etapa 5 para receber o push. Ele também permite que o app abra sem conexão, ainda que mostrando estado antigo.
+
+**HTTPS** — obrigatório. Web Push e service worker não funcionam sem ele, nem em rede local. Isso tem uma implicação prática que vale antecipar: testar notificação em `localhost` funciona, mas testar no celular dela exige HTTPS de verdade. Um túnel (ngrok, Cloudflare Tunnel) resolve durante o desenvolvimento; para uso real, um domínio com certificado.
+
+Essa é, provavelmente, a fricção mais chata do projeto inteiro — e ela não é de código, é de infraestrutura. Melhor saber agora.
+
+## 7.4 As telas
+
+Quatro, e nenhuma a mais no v1:
+
+**O quadro.** A tela principal: colunas lado a lado, cartões arrastáveis. Toda a Etapa 3 e a 6 se manifestam aqui — e é a tela onde a fluidez importa mais que qualquer outra coisa.
+
+**O cartão aberto.** Título, descrição, prazo e aviso prévio. Com a lição da Etapa 4: o campo de data não é obrigatório e não deve parecer obrigatório. A maioria dos cartões não terá prazo.
+
+**O calendário.** A lente da Etapa 4, atravessando quadros. Com o cuidado da seção 4.6: quando não houver cartões com data no período, dizer isso — uma grade vazia parece bug.
+
+**A lista de avisos.** A notificação in-app que ela pediu, chegando pelo canal da Etapa 6.
+
+Sobre a biblioteca de arrastar: dnd-kit ou equivalente resolve o problema difícil (acessibilidade, toque, colisão). O trabalho fica em integrar bem com a atualização otimista — o cartão precisa seguir o dedo sem esperar o servidor.
+
+## 7.5 Docker: três serviços
+
+```yaml
+services:
+  api:       # FastAPI
+  worker:    # o processo da Etapa 5
+  db:        # PostgreSQL
+```
+
+A novidade em relação aos projetos anteriores é o worker como serviço separado — mesma imagem da API, comando diferente. É a materialização da decisão da Etapa 5: mesmo código, mesmos modelos, ciclo de vida próprio.
+
+O frontend pode subir junto ou ser servido estaticamente; para uso real dela, o mais simples é publicar num serviço de hospedagem estática apontando para a API.
+
+As variáveis que o `.env.example` precisa registrar: conexão do banco, chaves VAPID (pública e privada), segredo do JWT e a origem permitida para CORS.
+
+## 7.6 Testes de ponta a ponta
+
+Três atravessam o sistema inteiro:
+
+**O fluxo completo:** criar quadro → criar listas → criar cartão → arrastar entre listas → confirmar a ordem persistida. Se passa, o núcleo funciona.
+
+**O ciclo do aviso:** criar cartão com prazo próximo → rodar o worker → confirmar que a notificação foi enviada e a flag marcada → rodar de novo → confirmar que não enviou duplicado. Esse é o teste de assinatura do projeto, porque exercita a decisão de idempotência da Etapa 5.
+
+**A ordenação sob estresse:** cinquenta inserções consecutivas no mesmo ponto, verificando que a ordem permanece correta. É o teste que prova a escolha de NUMERIC da Etapa 3 — e que falharia com float.
+
+## 7.7 O que fazer depois que ela usar
+
+Este projeto tem algo que nenhum dos outros teve: um usuário real dando retorno. Vale planejar o que fazer com isso.
+
+Duas coisas para observar nas primeiras semanas, que valem mais que qualquer suposição:
+
+**O que ela usa e o que ignora.** Se o calendário ficar intocado, a dimensão escolhida errou o alvo — e é melhor descobrir em duas semanas do que depois de construir mais coisa em cima. Se ela criar cartões e nunca puser data, o aviso vira decoração.
+
+**O que ela pede.** O pedido espontâneo vale mais que qualquer item do roadmap, porque nasce de irritação real. Se ela pedir algo que não está previsto — e provavelmente vai —, isso é o achado mais valioso do projeto, não um furo no planejamento.
+
+A regra da Etapa 1 continua valendo para o que vier: uma dimensão de cada vez. Se o próximo pedido for uma segunda dimensão, ele merece virar v2 com escopo próprio, não um puxadinho.
+
+## 7.8 O arco do projeto
+
+| Etapa | O que ficou | Onde reapareceu |
+|---|---|---|
+| 1 | Uma dimensão só — a regra que protege o escopo | Cada "fica no roadmap" |
+| 2 | Estado como posição, não campo | O oposto do projeto de agendamento |
+| 3 | Posição fracionária | Pagou o dividendo na Etapa 6 |
+| 4 | `notificar_em` materializado | Tornou a consulta da Etapa 5 trivial |
+| 5 | O worker que roda por tempo | A peça arquitetural nova |
+| 6 | Operações absolutas → LWW basta | Consequência da Etapa 3 |
+| 7 | O app na mão dela | O único juiz |
+
+Duas conexões que só apareceram porque a documentação veio antes do código:
+
+**Etapa 3 → Etapa 6.** Escolher posições fracionárias tornou as operações absolutas, e operações absolutas dispensam OT e CRDT. A decisão de ordenação resolveu a sincronização de graça.
+
+**Etapa 4 → Etapa 5.** Materializar `notificar_em` transformou a consulta do worker numa comparação simples. Sem ela, seria conta entre colunas e índice de expressão.
+
+Decisões de modelagem pagam ou cobram mais tarde — sempre. Nos dois casos aqui, pagaram.
+
+## 7.9 Glossário desta etapa
+
+| Termo | O que é |
+|---|---|
+| **PWA** | App web instalável, com ícone na tela inicial e tela cheia |
+| **manifest.json** | Arquivo que declara nome, ícone e comportamento de instalação |
+| **Túnel** | Serviço que expõe o servidor local via HTTPS público, para testar no celular |
+| **Teste E2E** | Teste que exercita o sistema inteiro, do clique ao banco |
+| **CORS** | Regra que autoriza o frontend a chamar a API de outra origem |
+
+## 7.10 Notas soltas desta etapa
+
+HTTPS é a fricção mais chata do projeto, e não é de código (7.3). Web Push e service worker exigem HTTPS. Testar em `localhost` funciona, mas testar no celular dela não — vai precisar de túnel durante o desenvolvimento e domínio com certificado para uso real. Melhor saber agora do que descobrir no dia da demonstração.
+
+Mover cartão tem rota própria, e o servidor calcula a posição (7.2). O cliente manda "antes de qual cartão", não o número. Isso mantém o cálculo fracionário da Etapa 3 num lugar só — se um dia você trocar NUMERIC por LexoRank, o frontend nem fica sabendo.
+
+A seção 7.7 é a que nenhum dos outros projetos teve: o que fazer depois que ela usar. Duas coisas para observar — o que ela ignora (se o calendário ficar intocado, a dimensão errou o alvo) e o que ela pede espontaneamente (vale mais que qualquer roadmap, porque nasce de irritação real). E a regra da Etapa 1 continua valendo para o que vier: uma dimensão de cada vez.
+
+As duas conexões do arco (7.8) só apareceram porque a documentação veio antes do código. Etapa 3 → 6: posições fracionárias tornaram as operações absolutas, e isso dispensou OT/CRDT. Etapa 4 → 5: materializar `notificar_em` tornou a consulta do worker trivial. Nos dois casos, uma decisão de modelagem pagou dividendo duas etapas depois.
+
+E o critério de sucesso ficou registrado como a última linha do documento, de propósito: não é nenhum item do roadmap. **É ela abrir o app amanhã.**
+
+## 7.11 Estado da implementação
+
+A tabela de rotas da 7.2 é a versão resumida e "de documento" — nomeada de um jeito ilustrativo (`PATCH /cartoes/{id}/mover`, `WS /ws/quadro/{id}`) que não é, ponta a ponta, o caminho exato de nenhuma rota real deste código (que usa, por exemplo, `POST /quadros/{quadro_id}/listas/{lista_id}/cartoes/{cartao_id}/mover` e `GET /ws/quadros/{quadro_id}` — caminhos aninhados sob quadro/lista, decididos já na Etapa 2, e o verbo `POST` para mover em vez de `PATCH`, decidido na Etapa 3 para deixar claro que é uma operação com identidade própria). A tabela desta seção descreve a FORMA da API (um recurso por etapa, mover com rota própria, escrita sempre HTTP); os caminhos exatos estão documentados em cada etapa anterior e no Swagger (`/docs`) da própria API.
+
+O que existe em código, além do que as Etapas 1-6 já tinham fechado:
+
+- **CORS** (`app/main.py`, `CORSMiddleware`) — inerte em desenvolvimento (o proxy do Vite já faz tudo parecer uma origem só), entra em jogo quando o frontend é publicado numa origem diferente da API.
+- **PWA**: `frontend/public/manifest.json` (com um ícone em SVG, não PNG — os navegadores atuais aceitam; PNG multi-tamanho fica para se um dia o app precisar rodar bem em iOS) e `frontend/public/sw.js` (o service worker, recebendo push e tratando clique para abrir o cartão certo — Etapa 5.7). Fica em `public/`, não em `src/sw.ts` como a Etapa 1.6 desenhou: é pouco código, não usa nada do resto do app, e um service worker precisa de uma URL estável na raiz do site — empacotar via Vite exigiria um segundo ponto de entrada de build só para isso.
+- **O cliente WebSocket** (`frontend/src/api/tempoReal.ts`), fechando a lacuna que a Etapa 6 tinha deixado em aberto: reconecta com espera crescente (6.8), ignora o próprio eco pelo `id_conexao` (6.7), e recarrega o quadro a cada evento externo em vez de reconciliar campo a campo — uma simplificação deliberada sobre o que a 6.1 descreve, trocando um pouco de suavidade por muito menos código.
+- **As quatro telas da 7.4**: o quadro (já existia desde a Etapa 6), o cartão aberto (`ModalDoCartao.tsx`), o calendário (`TelaCalendario.tsx`, uma agenda por dia, não uma grade de mês) e a lista de avisos (`PainelDeAvisos.tsx`, um sino no cabeçalho).
+- **Os três testes E2E da 7.6** (`backend/tests/test_e2e.py`). O terceiro (ordenação sob estresse) rodou primeiro com 50 inserções, como o texto pede, e encontrou uma armadilha real: o SQLite dos testes converte `Decimal` para `float` ao gravar (a própria armadilha da Etapa 3.4, um nível abaixo, na camada de binding do SQLAlchemy) — o PostgreSQL de produção não tem esse problema. A versão E2E ficou em 40 inserções, com folga sobre o ponto de colapso do SQLite; as 50 do checklist continuam provadas à risca pelo teste algorítmico da Etapa 3 (contra `Decimal` puro).
+- HTTPS/túnel/hospedagem (7.3/7.5) continuam sendo o que a documentação já avisava que seriam: infraestrutura, não código. Nada disso foi (nem podia ser) implementado nesta etapa.

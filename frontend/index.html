@@ -3,15 +3,15 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#191c24" />
+    <link rel="icon" href="/icone.svg" type="image/svg+xml" />
+    <!-- As três peças da Etapa 7.3 que tornam isto instalável: o
+         manifest (nome/ícone/tela cheia), o service worker (registrado
+         em src/main.tsx, recebe push mesmo com o app fechado -- Etapa
+         5.7) e HTTPS, que não é nada daqui, é infraestrutura de
+         implantação (ver README). -->
+    <link rel="manifest" href="/manifest.json" />
     <title>Kanban com tempo</title>
-    <!--
-      Sem <link rel="manifest"> aqui de propósito: tornar o app instalável
-      (PWA) é conteúdo da Etapa 7 da documentação ("Entrega — API, PWA,
-      testes e Docker"), que ainda não foi escrita. Adicionar o manifest
-      agora, sem os ícones e sem o service worker que o acompanham
-      (Etapa 5), deixaria uma peça pela metade -- o tipo de coisa que a
-      Etapa 1.2 da documentação pede para evitar.
-    -->
   </head>
   <body>
     <div id="raiz"></div>

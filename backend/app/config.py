@@ -73,6 +73,26 @@ class Configuracoes(BaseSettings):
     url_api_interna: str = "http://localhost:8000"
     chave_interna: str = "chave-de-desenvolvimento-troque-em-producao"
 
+    # --- CORS (Etapa 7.5) ---
+    # Em desenvolvimento, o frontend nunca precisa disso: o proxy do Vite
+    # (frontend/vite.config.ts) faz o navegador enxergar tudo como uma
+    # origem só. Mas a Etapa 7.5 já antecipa a entrega de verdade: "o mais
+    # simples é publicar [o frontend] num serviço de hospedagem estática
+    # apontando para a API" -- nesse cenário, frontend e API moram em
+    # origens diferentes de verdade, e o navegador bloqueia a chamada sem
+    # essa autorização explícita.
+    #
+    # Uma string separada por vírgulas, não uma lista -- variável de
+    # ambiente é sempre texto, e uma lista exigiria um formato (JSON?
+    # vírgula?) que só complicaria o .env sem necessidade; a conversão
+    # para lista acontece em app/main.py, no único lugar que precisa dela.
+    #
+    # allow_credentials=True (main.py) é obrigatório porque o login desta
+    # aplicação é cookie de sessão (Etapa 1.4) -- e o CORS do navegador
+    # proíbe combinar allow_credentials com "qualquer origem" (*); por
+    # isso a lista precisa ser explícita, nunca um curinga.
+    origens_permitidas_cors: str = "http://localhost:5173"
+
     # model_config diz ao pydantic-settings para também procurar um arquivo
     # `.env` na raiz do backend, além das variáveis de ambiente reais do
     # sistema operacional. Isso facilita o desenvolvimento local: em vez de

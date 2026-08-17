@@ -76,7 +76,8 @@ def _enviar_para_usuario(
     usuario_id: int,
     titulo: str,
     corpo: str,
-    enviar_notificacao: Callable[[AssinaturaPush, str, str], None],
+    url_destino: str,
+    enviar_notificacao: Callable[[AssinaturaPush, str, str, str], None],
 ) -> bool:
     """Envia para TODAS as assinaturas do usuário (Etapa 5.6: "notificar
     significa enviar para todas").
@@ -101,7 +102,7 @@ def _enviar_para_usuario(
     algum_envio_teve_sucesso = False
     for assinatura in assinaturas:
         try:
-            enviar_notificacao(assinatura, titulo, corpo)
+            enviar_notificacao(assinatura, titulo, corpo, url_destino)
             algum_envio_teve_sucesso = True
         except AssinaturaExpiradaError:
             sessao.delete(assinatura)
@@ -120,9 +121,19 @@ def _corpo_da_notificacao(cartao: Cartao) -> str:
     return f"“{cartao.titulo}” vence em {cartao.prazo:%d/%m às %H:%M}."
 
 
+def _url_do_cartao(quadro_id: int, cartao_id: int) -> str:
+    """A URL que o clique na notificação deve abrir (Etapa 5.7: "abrir o
+    app já no cartão certo, não na tela inicial"). O frontend ainda não
+    tem rotas de verdade (é uma página só, ver frontend/src/App.tsx) --
+    por isso um caminho com query string simples, que `QuadroKanban.tsx`
+    lê ao carregar para selecionar o quadro certo, em vez de um esquema de
+    rotas completo que este projeto não precisa ainda."""
+    return f"/?quadro={quadro_id}&cartao={cartao_id}"
+
+
 def executar_ciclo(
     sessao: Session,
-    enviar_notificacao: Callable[[AssinaturaPush, str, str], None] = enviar_notificacao_padrao,
+    enviar_notificacao: Callable[[AssinaturaPush, str, str, str], None] = enviar_notificacao_padrao,
     publicar_evento_realtime: Callable[[int, dict], None] = publicar_evento_de_notificacao_padrao,
     agora: datetime | None = None,
 ) -> int:
@@ -155,6 +166,7 @@ def executar_ciclo(
             usuario_id,
             titulo=cartao.titulo,
             corpo=_corpo_da_notificacao(cartao),
+            url_destino=_url_do_cartao(quadro_id, cartao.id),
             enviar_notificacao=enviar_notificacao,
         )
         if sucesso:

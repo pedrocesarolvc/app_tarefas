@@ -37,6 +37,16 @@ async function requisicao<T>(caminho: string, opcoes: RequestInit = {}): Promise
   return resposta.json();
 }
 
+/** Cabeçalho opcional presente em toda escrita que pode gerar eco (Etapa
+ * 6.7) -- o id de conexão devolvido por `useCanalDoQuadro`
+ * (api/tempoReal.ts). `undefined` quando não há canal em tempo real
+ * aberto (ex.: a escrita aconteceu antes do WebSocket conectar); nesse
+ * caso o evento simplesmente não carrega `origem`, e ninguém tem como
+ * confundi-lo com eco -- comportamento correto, só sem a otimização. */
+function cabecalhoDeOrigem(origemConexao?: string): HeadersInit | undefined {
+  return origemConexao ? { "X-Origem-Conexao": origemConexao } : undefined;
+}
+
 // --- Autenticação (Etapa 1.4) ---
 
 export const auth = {
@@ -63,12 +73,22 @@ export const quadros = {
 export const listas = {
   listar: (quadroId: number) => requisicao<Lista[]>(`/quadros/${quadroId}/listas`),
 
-  criar: (quadroId: number, nome: string) =>
-    requisicao<Lista>(`/quadros/${quadroId}/listas`, { method: "POST", body: JSON.stringify({ nome }) }),
+  criar: (quadroId: number, nome: string, origemConexao?: string) =>
+    requisicao<Lista>(`/quadros/${quadroId}/listas`, {
+      method: "POST",
+      headers: cabecalhoDeOrigem(origemConexao),
+      body: JSON.stringify({ nome }),
+    }),
 
-  mover: (quadroId: number, listaId: number, vizinhos: { anterior_id?: number; posterior_id?: number }) =>
+  mover: (
+    quadroId: number,
+    listaId: number,
+    vizinhos: { anterior_id?: number; posterior_id?: number },
+    origemConexao?: string
+  ) =>
     requisicao<Lista>(`/quadros/${quadroId}/listas/${listaId}/mover`, {
       method: "POST",
+      headers: cabecalhoDeOrigem(origemConexao),
       body: JSON.stringify({
         lista_anterior_id: vizinhos.anterior_id ?? null,
         lista_posterior_id: vizinhos.posterior_id ?? null,
@@ -78,14 +98,38 @@ export const listas = {
 
 // --- Cartões (Etapa 2 + Etapa 3 + Etapa 4) ---
 
+/** O que o modal de cartão (Etapa 7.4) edita -- os quatro campos de
+ * conteúdo, todos opcionais porque é um PATCH (só o que mudou vai no
+ * corpo; ver CartaoAtualizar, backend/app/schemas/cartao.py). */
+export interface CamposDoCartao {
+  titulo?: string;
+  descricao?: string | null;
+  prazo?: string | null;
+  aviso_previo?: number | null;
+}
+
 export const cartoes = {
   listar: (quadroId: number, listaId: number) =>
     requisicao<Cartao[]>(`/quadros/${quadroId}/listas/${listaId}/cartoes`),
 
-  criar: (quadroId: number, listaId: number, titulo: string) =>
+  criar: (quadroId: number, listaId: number, titulo: string, origemConexao?: string) =>
     requisicao<Cartao>(`/quadros/${quadroId}/listas/${listaId}/cartoes`, {
       method: "POST",
+      headers: cabecalhoDeOrigem(origemConexao),
       body: JSON.stringify({ titulo }),
+    }),
+
+  atualizar: (
+    quadroId: number,
+    listaId: number,
+    cartaoId: number,
+    campos: CamposDoCartao,
+    origemConexao?: string
+  ) =>
+    requisicao<Cartao>(`/quadros/${quadroId}/listas/${listaId}/cartoes/${cartaoId}`, {
+      method: "PATCH",
+      headers: cabecalhoDeOrigem(origemConexao),
+      body: JSON.stringify(campos),
     }),
 
   mover: (
@@ -97,11 +141,30 @@ export const cartoes = {
   ) =>
     requisicao<Cartao>(`/quadros/${quadroId}/listas/${listaOrigemId}/cartoes/${cartaoId}/mover`, {
       method: "POST",
-      headers: origemConexao ? { "X-Origem-Conexao": origemConexao } : undefined,
+      headers: cabecalhoDeOrigem(origemConexao),
       body: JSON.stringify({
         lista_id: destino.lista_id,
         cartao_anterior_id: destino.anterior_id ?? null,
         cartao_posterior_id: destino.posterior_id ?? null,
       }),
     }),
+
+  arquivar: (quadroId: number, listaId: number, cartaoId: number, origemConexao?: string) =>
+    requisicao<Cartao>(`/quadros/${quadroId}/listas/${listaId}/cartoes/${cartaoId}/arquivar`, {
+      method: "POST",
+      headers: cabecalhoDeOrigem(origemConexao),
+    }),
+};
+
+// --- Calendário (Etapa 4.5) ---
+
+export const calendario = {
+  /** `de`/`ate` em ISO 8601. Atravessa todos os quadros do usuário por
+   * padrão (Etapa 4.5) -- `quadroId` é o filtro opcional que a própria
+   * rota já previa. */
+  listar: (de: string, ate: string, quadroId?: number) => {
+    const parametros = new URLSearchParams({ de, ate });
+    if (quadroId !== undefined) parametros.set("quadro_id", String(quadroId));
+    return requisicao<Cartao[]>(`/calendario?${parametros.toString()}`);
+  },
 };

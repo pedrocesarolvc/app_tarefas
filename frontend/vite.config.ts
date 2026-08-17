@@ -18,6 +18,17 @@ export default defineConfig({
         changeOrigin: true,
         rewrite: (caminho) => caminho.replace(/^\/api/, ""),
       },
+      // O canal em tempo real (Etapa 6.4) não tem prefixo /api no backend
+      // (é a rota WebSocket /ws/quadros/{id}, ver
+      // backend/app/rotas/realtime.py) -- então este proxy não reescreve
+      // caminho nenhum, só encaminha como está. `ws: true` é o que faz o
+      // proxy de desenvolvimento do Vite tratar isto como upgrade de
+      // WebSocket, não como uma requisição HTTP comum.
+      "/ws": {
+        target: "http://localhost:8000",
+        changeOrigin: true,
+        ws: true,
+      },
     },
   },
 });

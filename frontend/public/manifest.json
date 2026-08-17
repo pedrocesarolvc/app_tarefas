@@ -1,0 +1,23 @@
+{
+  "name": "Kanban com tempo",
+  "short_name": "Kanban",
+  "description": "Quadro kanban com prazo, aviso prévio e calendário.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#14161c",
+  "theme_color": "#191c24",
+  "icons": [
+    {
+      "src": "/icone.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/icone.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    }
+  ]
+}

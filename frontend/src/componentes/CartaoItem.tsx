@@ -13,6 +13,13 @@ interface Props {
    * componente: quem sabe quando um arrasto terminou é quem ouve o
    * `onDragEnd` do dnd-kit. */
   acabouDePousar: boolean;
+  /** Abre o modal de detalhe (Etapa 7.4, "o cartão aberto"). Um clique
+   * sem arrastar (o `activationConstraint: { distance: 4 }` do
+   * PointerSensor, em QuadroKanban.tsx, é quem faz o dnd-kit não tratar
+   * isso como início de arrasto) ainda dispara o `onClick` normal do
+   * navegador -- é o padrão recomendado do próprio dnd-kit para
+   * clique-ou-arrasto no mesmo elemento. */
+  onAbrir: () => void;
 }
 
 /**
@@ -29,7 +36,7 @@ interface Props {
  * flutuante" ter uma sombra/rotação sem afetar o layout da lista embaixo
  * dela.
  */
-export default function CartaoItem({ cartao, acento, acabouDePousar }: Props) {
+export default function CartaoItem({ cartao, acento, acabouDePousar, onAbrir }: Props) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: cartao.id,
   });
@@ -48,7 +55,7 @@ export default function CartaoItem({ cartao, acento, acabouDePousar }: Props) {
   const vencido = cartao.prazo !== null && !cartao.notificado && new Date(cartao.prazo).getTime() < Date.now();
 
   return (
-    <div ref={setNodeRef} style={estilo} className={classes} {...attributes} {...listeners}>
+    <div ref={setNodeRef} style={estilo} className={classes} onClick={onAbrir} {...attributes} {...listeners}>
       <div className="cartao__titulo">{cartao.titulo}</div>
       {cartao.prazo && (
         <span className={`cartao__prazo ${vencido ? "cartao__prazo--vencido" : ""}`}>

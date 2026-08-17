@@ -15,3 +15,16 @@ ReactDOM.createRoot(document.getElementById("raiz")!).render(
     <App />
   </React.StrictMode>
 );
+
+// Registra o service worker (Etapa 5.7/7.3) -- fora do React de propósito,
+// não é estado de tela, é infraestrutura do navegador que só precisa
+// acontecer uma vez. `"serviceWorker" in navigator` protege navegadores
+// antigos que não suportam a API (o app funciona normalmente sem push
+// neles, só não recebe notificação com a aba fechada).
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("/sw.js").catch((erro) => {
+      console.error("Não foi possível registrar o service worker:", erro);
+    });
+  });
+}

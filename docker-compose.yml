@@ -40,6 +40,11 @@ services:
       # compartilhado que autentica a chamada dele para
       # POST /interno/eventos-tempo-real (Etapa 6.5).
       CHAVE_INTERNA: troque-esta-chave-interna-tambem
+      # Etapa 7.5: a origem de onde o frontend publicado tem permissão de
+      # chamar esta API pelo navegador. O padrão cobre rodar o frontend
+      # localmente com `npm run dev`; sobrescreva com a URL real de
+      # produção quando publicar o frontend em algum lugar.
+      ORIGENS_PERMITIDAS_CORS: ${ORIGENS_PERMITIDAS_CORS:-http://localhost:5173}
     ports:
       - "8000:8000"
     depends_on:

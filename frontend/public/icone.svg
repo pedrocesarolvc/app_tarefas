@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!--
+    Ícone do app (Etapa 7.3): um quadro kanban achatado, nas mesmas cores
+    do tema (ver src/index.css) -- três colunas de altura desigual, sem
+    nenhum detalhe fino demais para sumir num ícone pequeno de tela
+    inicial. SVG, não PNG: os navegadores atuais (Chrome, Edge, a maioria
+    dos Android) já aceitam ícone de manifest em SVG, e evita depender de
+    uma ferramenta de imagem só para gerar alguns tamanhos de PNG. Se um
+    dia o app precisar rodar bem em iOS (que ainda não lê SVG de
+    manifest), essa é a primeira peça a trocar por PNG de verdade.
+    A margem ao redor do conteúdo (~10% de cada lado) segue a "zona seguravel"
+    de ícones "maskable", que os sistemas operacionais podem recortar em
+    formas diferentes (círculo, squircle) sem cortar o desenho.
+  -->
+  <rect width="512" height="512" rx="96" fill="#191c24" />
+  <rect x="96" y="128" width="88" height="256" rx="14" fill="#c98f9a" />
+  <rect x="212" y="128" width="88" height="164" rx="14" fill="#d3ab6e" />
+  <rect x="328" y="128" width="88" height="208" rx="14" fill="#8fb99e" />
+</svg>

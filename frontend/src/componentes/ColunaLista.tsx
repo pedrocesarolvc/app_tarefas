@@ -11,6 +11,7 @@ interface Props {
   cartoes: Cartao[];
   cartaoQueAcabouDePousar: number | null;
   onCriarCartao: (listaId: number, titulo: string) => void;
+  onAbrirCartao: (cartao: Cartao) => void;
 }
 
 /**
@@ -20,7 +21,14 @@ interface Props {
  * alvo entre si, mas uma coluna sem nenhum cartão não tem nenhum alvo
  * "entre" -- precisa do próprio contêiner como alvo de reserva.
  */
-export default function ColunaLista({ lista, indice, cartoes, cartaoQueAcabouDePousar, onCriarCartao }: Props) {
+export default function ColunaLista({
+  lista,
+  indice,
+  cartoes,
+  cartaoQueAcabouDePousar,
+  onCriarCartao,
+  onAbrirCartao,
+}: Props) {
   const acento = acentoParaIndice(indice);
   const { setNodeRef, isOver } = useDroppable({
     id: `lista-${lista.id}`,
@@ -62,6 +70,7 @@ export default function ColunaLista({ lista, indice, cartoes, cartaoQueAcabouDeP
               cartao={cartao}
               acento={acento}
               acabouDePousar={cartaoQueAcabouDePousar === cartao.id}
+              onAbrir={() => onAbrirCartao(cartao)}
             />
           ))}
         </SortableContext>
