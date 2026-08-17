@@ -15,8 +15,10 @@ node_modules/
 frontend/dist/
 frontend/.vite/
 
-# --- banco de dados local (se alguém rodar Postgres em arquivo/sqlite local) ---
+# --- banco de dados local (se alguém rodar Postgres em arquivo/sqlite local,
+# ou um banco de demonstração temporário como backend/demo.db) ---
 *.sqlite3
+*.db
 pgdata/
 
 # --- editor / SO ---

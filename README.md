@@ -4,6 +4,69 @@ App de tarefas em formato kanban com uma dimensão a mais que o kanban clássico
 
 A documentação completa (visão, domínio, decisões de arquitetura, e o plano de etapas) está em [`docs/documentacao.md`](docs/documentacao.md). Leia-a antes de mexer em qualquer coisa aqui: cada decisão de código deste repositório existe porque uma seção específica daquele documento pediu por ela — os comentários no código apontam de volta para a etapa correspondente.
 
+## Como usar — passo a passo
+
+### 1. Subir tudo
+
+O caminho mais curto é o Docker Compose (sobe banco, API e worker juntos):
+
+```bash
+docker compose up --build
+```
+
+Na primeira vez, aplique as migrações (em outro terminal, com os serviços já no ar):
+
+```bash
+docker compose exec api alembic revision --autogenerate -m "schema inicial"
+docker compose exec api alembic upgrade head
+```
+
+Depois, o frontend (fora do Docker — ver "Rodando o frontend" mais abaixo):
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Sem Docker instalado, dá para rodar tudo local (Python + PostgreSQL + Node) — o passo a passo completo está nas seções "Rodando o backend localmente", "Rodando o worker" e "Rodando o frontend" logo abaixo.
+
+### 2. Abrir o app e criar sua conta
+
+Acesse `http://localhost:5173`. Não existe usuária de teste pré-cadastrada — na própria tela de login, clique em **"Ainda não tenho conta"**, preencha e-mail e senha (mínimo 8 caracteres) e clique em **"Criar conta e entrar"**. Da próxima vez, é só entrar normalmente com esse e-mail e senha.
+
+### 3. Criar seu primeiro quadro
+
+Sem nenhum quadro ainda, o app pede um nome (ex.: "Casa", "Faculdade") e um clique em **"Criar"**. Um quadro é um contexto de organização — pode criar quantos quiser depois, trocando entre eles pelo seletor no cabeçalho.
+
+### 4. Criar listas (as colunas)
+
+No fim da fileira de colunas, clique em **"+ Nova lista"**, digite um nome (ex.: "A fazer", "Fazendo", "Pronto" — mas o nome é livre, o app não tem estados fixos) e aperte Enter.
+
+### 5. Criar cartões (as tarefas)
+
+Dentro de uma coluna, clique em **"+ Adicionar cartão"**, digite o título e aperte Enter. Não pede prazo — a maioria dos cartões não vai ter um, e está tudo bem.
+
+### 6. Arrastar cartões entre colunas
+
+Clique e segure um cartão, arraste para outra coluna (ou para outra posição na mesma coluna) e solte. A mudança já aparece na tela na hora; um pulso rápido marca onde o cartão pousou.
+
+### 7. Definir prazo e aviso prévio (opcional)
+
+Clique no cartão (sem arrastar) para abrir o detalhe. Título e descrição são editáveis; o campo **Prazo** é opcional e tem um botão **"Remover"** quando preenchido. Só depois de definir um prazo aparece o campo **Avisar**, com opções como "15 minutos antes", "1 hora antes", "1 dia antes". Clique em **Salvar**.
+
+### 8. Ver o calendário
+
+O botão **"Calendário"** no cabeçalho troca a visão do quadro por uma agenda dos próximos 30 dias, com todos os cartões que têm prazo — de todos os seus quadros, não só o que está aberto. Sem nenhum cartão com data no período, a tela diz isso explicitamente (não é bug).
+
+### 9. Receber avisos
+
+O sino 🔔 no cabeçalho guarda os avisos que chegaram durante a sessão atual, entregues em tempo real assim que o worker notifica um cartão (não precisa recarregar a página). Para notificação push de verdade — com o app fechado, no celular — veja a ressalva sobre HTTPS mais abaixo, em "Rodando o frontend".
+
+### 10. Sair
+
+Botão **"Sair"** no cabeçalho, a qualquer momento.
+
 ## Estado atual
 
 **Todas as sete etapas da documentação estão implementadas** (`docs/documentacao.md`) — este é o v1 completo. Isso significa que hoje existem:
